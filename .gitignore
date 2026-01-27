@@ -1,0 +1,28 @@
+# 构建目录和编译产物
+build/
+*.o
+*.a
+*.so
+*.dll
+*.exe
+GHIP
+
+# 编辑器/IDE文件
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# 系统文件
+.DS_Store
+Thumbs.db
+
+# 备份文件
+*.backup
+*.bak
+
+# 日志文件
+*.log
+
+# 临时文件
+/tmp/
