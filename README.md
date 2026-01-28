@@ -16,7 +16,7 @@ chmod +x build.sh
 ./build.sh
 ```
 
-它会生成一个 `build\` 目录，运行里面的 `GHIP` 程序即可
+它会生成一个 `build\` 目录，以 root 用户身份运行里面的 `GHIP` 程序即可
 ```bash
-./build/GHIP
+sudo ./build/GHIP
 ```
