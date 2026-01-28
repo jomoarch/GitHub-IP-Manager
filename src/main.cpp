@@ -23,15 +23,81 @@ int main() {
 
     switch (choice) {
     case 1: { // 自动检测并优化
-      std::vector<GitHubIP> ip_list;
+      // 让用户选择IP来源
+      int source_choice = ui.selectIPSource();
 
-      // 从GitHub API获取IP
-      if (!fetcher.fetchFromGitHubAPI(ip_list)) {
-        ui.printColored("从API获取失败，尝试备用源...\n", "yellow");
-        if (!fetcher.fetchFromBackupSource(ip_list)) {
-          ui.printColored("无法获取IP列表！\n", "red");
+      std::vector<GitHubIP> ip_list;
+      bool api_success = false;
+      bool backup_success = false;
+
+      // 根据用户选择获取IP
+      switch (source_choice) {
+      case 1: { // 仅使用GitHub API
+        std::cout << "\n使用GitHub官方API获取IP..." << std::endl;
+        api_success = fetcher.fetchFromGitHubAPI(ip_list);
+        if (!api_success) {
+          ui.printColored("从API获取失败！\n", "red");
           break;
         }
+        break;
+      }
+
+      case 2: { // 仅使用GitHub520
+        std::cout << "\n使用GitHub520备用源获取IP..." << std::endl;
+        backup_success = fetcher.fetchFromBackupSource(ip_list);
+        if (!backup_success) {
+          ui.printColored("从备用源获取失败！\n", "red");
+          break;
+        }
+        break;
+      }
+
+      case 3: { // 两者合并
+        std::cout << "\n同时获取两种来源的IP..." << std::endl;
+
+        std::vector<GitHubIP> api_list;
+        std::vector<GitHubIP> backup_list;
+
+        // 并行获取（这里简化，实际可考虑多线程）
+        api_success = fetcher.fetchFromGitHubAPI(api_list);
+        backup_success = fetcher.fetchFromBackupSource(backup_list);
+
+        if (!api_success && !backup_success) {
+          ui.printColored("两个来源都获取失败！\n", "red");
+          break;
+        }
+
+        if (api_success) {
+          std::cout << "从API获取到 " << api_list.size() << " 个IP"
+                    << std::endl;
+        }
+        if (backup_success) {
+          std::cout << "从备用源获取到 " << backup_list.size() << " 个IP"
+                    << std::endl;
+        }
+
+        // 合并去重
+        if (api_success && backup_success) {
+          // 优先使用备用源的IP（质量更高）
+          ip_list = backup_list;
+          IPFetcher::mergeIPLists(ip_list, api_list);
+        } else if (api_success) {
+          ip_list = api_list;
+        } else {
+          ip_list = backup_list;
+        }
+
+        std::cout << "合并去重后共有 " << ip_list.size() << " 个IP"
+                  << std::endl;
+        break;
+      }
+      }
+
+      // 如果没有获取到IP，退出
+      if (ip_list.empty()) {
+        std::cout << "按回车键返回主菜单...";
+        std::cin.get();
+        break;
       }
 
       // 批量测试IP质量

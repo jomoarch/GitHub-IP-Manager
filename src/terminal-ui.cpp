@@ -188,3 +188,64 @@ bool TerminalUI::confirmDialog(const std::string &question, bool default_yes) {
 
   return (answer[0] == 'Y' || answer[0] == 'y');
 }
+
+int TerminalUI::selectIPSource() {
+  clearScreen();
+
+  printColored("=", "cyan", true);
+  for (int i = 0; i < terminal_width_ - 2; i++) {
+    std::cout << "=";
+  }
+  std::cout << "=\n";
+
+  printColored("  GitHub IP 获取来源选择", "cyan", true);
+  std::cout << std::endl << std::endl;
+
+  std::cout << "请选择IP获取方式:\n";
+  std::cout << "1. GitHub官方API（完整，但测试慢）\n";
+  std::cout << "   - 获取官方CIDR段，展开后测试\n";
+  std::cout << "   - 包含所有可能的IP地址\n";
+  std::cout << "   - 可能需要测试数百个IP\n\n";
+
+  std::cout << "2. GitHub520备用源（快速，推荐）\n";
+  std::cout << "   - 获取预验证的高质量IP列表\n";
+  std::cout << "   - 通常包含30-50个已验证IP\n";
+  std::cout << "   - 测试速度快，成功率高\n\n";
+
+  std::cout << "3. 同时使用两者（最全面）\n";
+  std::cout << "   - 合并两个来源的IP\n";
+  std::cout << "   - 去重后统一测试\n";
+  std::cout << "   - 最全面但测试时间最长\n";
+
+  std::cout << std::endl;
+  printColored("=", "cyan", true);
+  for (int i = 0; i < terminal_width_ - 2; i++) {
+    std::cout << "=";
+  }
+  std::cout << "=\n";
+
+  std::cout << "请选择 (1-3): ";
+
+  int choice;
+  std::string input;
+  std::getline(std::cin, input);
+
+  try {
+    choice = std::stoi(input);
+  } catch (...) {
+    choice = 0;
+  }
+
+  // 验证输入
+  while (choice < 1 || choice > 3) {
+    std::cout << "输入无效，请重新输入 (1-3): ";
+    std::getline(std::cin, input);
+    try {
+      choice = std::stoi(input);
+    } catch (...) {
+      choice = 0;
+    }
+  }
+
+  return choice;
+}

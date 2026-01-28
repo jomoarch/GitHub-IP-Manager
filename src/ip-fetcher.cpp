@@ -2,6 +2,7 @@
 #include <curl/curl.h>
 #include <iostream>
 #include <regex>
+#include <set>
 #include <sstream>
 
 // libcurl写回调函数
@@ -31,13 +32,46 @@ bool IPFetcher::fetchFromBackupSource(std::vector<GitHubIP> &ip_list) {
 
   // GitHub 相关域名列表
   std::vector<std::string> target_domains = {
-      "github.com",
+      "alive.github.com",
       "api.github.com",
-      "assets-cdn.github.com",
+      "api.individual.githubcopilot.com",
+      "avatars.githubusercontent.com",
+      "avatars0.githubusercontent.com",
+      "avatars1.githubusercontent.com",
+      "avatars2.githubusercontent.com",
+      "avatars3.githubusercontent.com",
+      "avatars4.githubusercontent.com",
+      "avatars5.githubusercontent.com",
+      "camo.githubusercontent.com",
+      "central.github.com",
+      "cloud.githubusercontent.com",
+      "codeload.github.com",
+      "collector.github.com",
+      "desktop.githubusercontent.com",
+      "favicons.githubusercontent.com",
+      "gist.github.com",
+      "github-cloud.s3.amazonaws.com",
+      "github-com.s3.amazonaws.com",
+      "github-production-release-asset-2e65be.s3.amazonaws.com",
+      "github-production-repository-file-5c1aeb.s3.amazonaws.com",
+      "github-production-user-asset-6210df.s3.amazonaws.com",
+      "github.blog",
+      "github.com",
+      "github.community",
+      "github.githubassets.com",
+      "github.global.ssl.fastly.net",
+      "github.io",
+      "github.map.fastly.net",
+      "githubstatus.com",
+      "live.github.com",
+      "media.githubusercontent.com",
+      "objects.githubusercontent.com",
+      "pipelines.actions.githubusercontent.com",
       "raw.githubusercontent.com",
       "user-images.githubusercontent.com",
-      "codeload.github.com",
-      "github.global.ssl.fastly.net"};
+      "private-user-images.githubusercontent.com",
+      "vscode.dev", // 注意：文档中标注了此域名可能超时
+      "education.github.com"};
 
   int ip_count = 0;
   while (std::getline(iss, line)) {
@@ -128,13 +162,46 @@ bool IPFetcher::parseGitHubAPIResponse(const std::string &json_str,
   // 这里解析GitHub API返回的CIDR格式
 
   std::vector<std::string> github_domains = {
-      "github.com",
+      "alive.github.com",
       "api.github.com",
-      "assets-cdn.github.com",
+      "api.individual.githubcopilot.com",
+      "avatars.githubusercontent.com",
+      "avatars0.githubusercontent.com",
+      "avatars1.githubusercontent.com",
+      "avatars2.githubusercontent.com",
+      "avatars3.githubusercontent.com",
+      "avatars4.githubusercontent.com",
+      "avatars5.githubusercontent.com",
+      "camo.githubusercontent.com",
+      "central.github.com",
+      "cloud.githubusercontent.com",
+      "codeload.github.com",
+      "collector.github.com",
+      "desktop.githubusercontent.com",
+      "favicons.githubusercontent.com",
+      "gist.github.com",
+      "github-cloud.s3.amazonaws.com",
+      "github-com.s3.amazonaws.com",
+      "github-production-release-asset-2e65be.s3.amazonaws.com",
+      "github-production-repository-file-5c1aeb.s3.amazonaws.com",
+      "github-production-user-asset-6210df.s3.amazonaws.com",
+      "github.blog",
+      "github.com",
+      "github.community",
+      "github.githubassets.com",
+      "github.global.ssl.fastly.net",
+      "github.io",
+      "github.map.fastly.net",
+      "githubstatus.com",
+      "live.github.com",
+      "media.githubusercontent.com",
+      "objects.githubusercontent.com",
+      "pipelines.actions.githubusercontent.com",
       "raw.githubusercontent.com",
       "user-images.githubusercontent.com",
-      "codeload.github.com",
-      "github.global.ssl.fastly.net"};
+      "private-user-images.githubusercontent.com",
+      "vscode.dev", // 注意：文档中标注了此域名可能超时
+      "education.github.com"};
 
   // 提取web字段的CIDR
   std::regex cidr_regex("\"web\":\\s*\\[([^\\]]+)\\]");
@@ -203,4 +270,26 @@ std::vector<std::string> IPFetcher::expandCIDR(const std::string &cidr) {
   }
 
   return result;
+}
+
+void IPFetcher::mergeIPLists(std::vector<GitHubIP> &dest,
+                             const std::vector<GitHubIP> &src) {
+  // 使用set记录已存在的IP-域名组合
+  std::set<std::pair<std::string, std::string>> existing_ips;
+
+  // 记录目标列表中已有的组合
+  for (const auto &ip : dest) {
+    existing_ips.insert({ip.address, ip.domain});
+  }
+
+  // 添加源列表中不重复的组合
+  for (const auto &ip : src) {
+    auto key = std::make_pair(ip.address, ip.domain);
+    if (existing_ips.find(key) == existing_ips.end()) {
+      dest.push_back(ip);
+      existing_ips.insert(key);
+    }
+  }
+
+  std::cout << "合并后IP总数: " << dest.size() << std::endl;
 }

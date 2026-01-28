@@ -29,6 +29,9 @@ public:
   // 展开CIDR格式的IP段
   static std::vector<std::string> expandCIDR(const std::string &cidr);
 
+  static void mergeIPLists(std::vector<GitHubIP> &dest,
+                           const std::vector<GitHubIP> &src);
+
 private:
   std::string user_agent_;
 

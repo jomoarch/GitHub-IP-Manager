@@ -10,6 +10,8 @@ class TerminalUI {
 public:
   TerminalUI();
 
+  int selectIPSource();
+
   // 显示主菜单
   void showMainMenu();
 
