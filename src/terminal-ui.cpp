@@ -255,7 +255,7 @@ TerminalUI::selectIPsNcduMode(const std::vector<GitHubIP> &ip_list,
                  "cyan");
     printColored("║ ", "cyan");
     printColored(title, "cyan", true);
-    for (int i = 0; i < terminal_width_ - title.length() - 4; i++) {
+    for (int i = 0; i < 63 - title.length(); i++) {
       std::cout << " ";
     }
     printColored("║\n", "cyan");
