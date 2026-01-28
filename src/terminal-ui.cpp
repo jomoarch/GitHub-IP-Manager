@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <iomanip>
 #include <iostream>
+#include <string>
 #include <sys/ioctl.h>
 #include <termios.h>
 #include <unistd.h>
@@ -43,82 +44,6 @@ void TerminalUI::showMainMenu() {
   std::cout << "=\n";
 
   std::cout << "请选择操作 (1-5): ";
-}
-
-std::vector<GitHubIP>
-TerminalUI::selectIPsInteractive(const std::vector<GitHubIP> &ip_list,
-                                 const std::string &title) {
-
-  clearScreen();
-  printColored(title, "yellow", true);
-  std::cout << std::endl;
-
-  std::vector<GitHubIP> valid_ips;
-  std::copy_if(ip_list.begin(), ip_list.end(), std::back_inserter(valid_ips),
-               [](const GitHubIP &ip) { return ip.is_valid; });
-
-  if (valid_ips.empty()) {
-    printColored("没有找到有效的IP地址！", "red", true);
-    return {};
-  }
-
-  // 显示IP列表表格
-  std::cout << std::left << std::setw(6) << "序号" << std::setw(18) << "IP地址"
-            << std::setw(25) << "域名" << std::setw(10) << "延迟(ms)"
-            << std::setw(8) << "状态" << std::endl;
-
-  std::cout << std::string(terminal_width_, '-') << std::endl;
-
-  for (size_t i = 0; i < valid_ips.size(); i++) {
-    std::cout << std::left << std::setw(6) << (i + 1) << std::setw(18)
-              << valid_ips[i].address << std::setw(25)
-              << (valid_ips[i].domain.length() > 24
-                      ? valid_ips[i].domain.substr(0, 21) + "..."
-                      : valid_ips[i].domain)
-              << std::setw(10);
-
-    if (valid_ips[i].latency >= 0) {
-      std::cout << valid_ips[i].latency;
-    } else {
-      std::cout << "N/A";
-    }
-
-    std::cout << std::setw(8);
-    if (valid_ips[i].is_valid) {
-      printColored("✓ 可用", "green");
-    } else {
-      printColored("✗ 无效", "red");
-    }
-    std::cout << std::endl;
-  }
-
-  std::cout << std::endl;
-  std::cout << "选择要应用的IP（输入序号，多个用逗号分隔，0选择所有）: ";
-
-  std::string input;
-  std::getline(std::cin, input);
-
-  std::vector<GitHubIP> selected_ips;
-
-  if (input == "0") {
-    // 选择所有
-    return valid_ips;
-  }
-
-  std::istringstream iss(input);
-  std::string token;
-  while (std::getline(iss, token, ',')) {
-    try {
-      int index = std::stoi(token) - 1;
-      if (index >= 0 && index < static_cast<int>(valid_ips.size())) {
-        selected_ips.push_back(valid_ips[index]);
-      }
-    } catch (...) {
-      // 忽略无效输入
-    }
-  }
-
-  return selected_ips;
 }
 
 void TerminalUI::showProgressBar(int current, int total,
@@ -205,7 +130,7 @@ int TerminalUI::selectIPSource() {
   std::cout << "1. GitHub官方API（完整，但测试慢）\n";
   std::cout << "   - 获取官方CIDR段，展开后测试\n";
   std::cout << "   - 包含所有可能的IP地址\n";
-  std::cout << "   - 可能需要测试数百个IP\n\n";
+  std::cout << "   - 可能需要测试上千个IP\n\n";
 
   std::cout << "2. GitHub520备用源（快速，推荐）\n";
   std::cout << "   - 获取预验证的高质量IP列表\n";
@@ -250,7 +175,6 @@ int TerminalUI::selectIPSource() {
   return choice;
 }
 
-// terminal-ui.cpp - 在文件末尾添加
 void TerminalUI::showPermissionWarning() {
   clearScreen();
 
@@ -282,4 +206,336 @@ void TerminalUI::showPermissionWarning() {
                "red", true);
 
   std::cout << "\n按回车键继续（功能受限）...";
+}
+
+std::vector<GitHubIP>
+TerminalUI::selectIPsNcduMode(const std::vector<GitHubIP> &ip_list,
+                              const std::string &title) {
+
+  // 过滤出有效IP
+  std::vector<GitHubIP> valid_ips;
+  std::copy_if(ip_list.begin(), ip_list.end(), std::back_inserter(valid_ips),
+               [](const GitHubIP &ip) { return ip.is_valid; });
+
+  if (valid_ips.empty()) {
+    printColored("没有找到有效的IP地址！", "red", true);
+    return {};
+  }
+
+  // 状态变量
+  int cursor_pos = 0;
+  int scroll_offset = 0;
+  bool batch_mode = false;
+  int batch_start = -1;
+  std::vector<bool> selected(valid_ips.size(), false);
+  bool quit = false;
+  bool confirm = false;
+
+  // 计算可显示行数
+  struct winsize w;
+  ioctl(STDOUT_FILENO, TIOCGWINSZ, &w);
+  int visible_rows = w.ws_row - 10; // 减去标题和状态栏
+
+  // 设置终端为原始模式（读取单个字符）
+  struct termios oldt, newt;
+  tcgetattr(STDIN_FILENO, &oldt);
+  newt = oldt;
+  newt.c_lflag &= ~(ICANON | ECHO);
+  tcsetattr(STDIN_FILENO, TCSANOW, &newt);
+
+  // 清屏并隐藏光标
+  std::cout << "\033[?25l"; // 隐藏光标
+
+  while (!quit && !confirm) {
+    // 清屏
+    clearScreen();
+
+    // 显示标题
+    printColored("╔════════════════════════════════════════════════════════╗\n",
+                 "cyan");
+    printColored("║ ", "cyan");
+    printColored(title, "cyan", true);
+    for (int i = 0; i < terminal_width_ - title.length() - 4; i++) {
+      std::cout << " ";
+    }
+    printColored("║\n", "cyan");
+    printColored("╚════════════════════════════════════════════════════════╝\n",
+                 "cyan");
+
+    // 显示统计信息
+    int selected_count = std::count(selected.begin(), selected.end(), true);
+    std::cout << "有效IP: " << valid_ips.size() << " 个 | ";
+    std::cout << "已选择: " << selected_count << " 个 | ";
+    std::cout << "光标: " << (cursor_pos + 1) << "/" << valid_ips.size();
+    if (batch_mode) {
+      printColored(" | 批量选择模式", "yellow", true);
+    }
+    std::cout << "\n";
+
+    std::cout << std::string(terminal_width_, '-') << "\n";
+
+    // 计算滚动位置
+    if (cursor_pos < scroll_offset) {
+      scroll_offset = cursor_pos;
+    } else if (cursor_pos >= scroll_offset + visible_rows) {
+      scroll_offset = cursor_pos - visible_rows + 1;
+    }
+
+    int line_num_width = std::to_string(valid_ips.size()).length();
+
+    // 显示IP列表
+    int end_row = std::min(scroll_offset + visible_rows, (int)valid_ips.size());
+    for (int i = scroll_offset; i < end_row; i++) {
+      const auto &ip = valid_ips[i];
+
+      // ============ 左侧：行号区域 ============
+      // 打印行号（右对齐，不补零）
+      std::string line_num_str = std::to_string(i + 1);
+      int padding = line_num_width - line_num_str.length();
+      for (int p = 0; p < padding; p++) {
+        std::cout << " ";
+      }
+      std::cout << line_num_str << " ║ ";
+
+      // ============ 右侧：内容区域 ============
+
+      // 绘制行前缀
+      if (batch_mode && batch_start != -1) {
+        int start = std::min(batch_start, cursor_pos);
+        int end = std::max(batch_start, cursor_pos);
+        if (i >= start && i <= end) {
+          printColored("│ ", "yellow"); // 批量选择竖线
+        } else {
+          std::cout << "  ";
+        }
+      } else {
+        std::cout << "  ";
+      }
+
+      // 光标指示
+      if (i == cursor_pos) {
+        printColored("▶ ", "green", true); // 光标
+      } else {
+        std::cout << "  ";
+      }
+
+      // 选择状态
+      if (selected[i]) {
+        printColored("● ", "green"); // 已选中
+      } else {
+        std::cout << "○ ";
+      }
+
+      // IP信息
+      std::cout << std::left << std::setw(18) << ip.address;
+
+      // 域名（截断处理）
+      std::string domain_display = ip.domain;
+      if (domain_display.length() > 25) {
+        domain_display = domain_display.substr(0, 22) + "...";
+      }
+      std::cout << std::setw(28) << domain_display;
+
+      // 延迟
+      if (ip.latency >= 0) {
+        std::cout << std::setw(8) << ip.latency << "ms";
+      } else {
+        std::cout << std::setw(8) << "N/A";
+      }
+
+      // 质量指示器
+      if (ip.latency >= 0) {
+        if (ip.latency < 50) {
+          printColored(" ██████", "green");
+        } else if (ip.latency < 100) {
+          printColored(" ████", "yellow");
+        } else if (ip.latency < 200) {
+          printColored(" ██", "red");
+        }
+      }
+
+      std::cout << "\n";
+    }
+
+    // 显示状态栏
+    std::cout << std::string(terminal_width_, '-') << "\n";
+
+    // 显示操作提示
+    std::cout << "j:下移 k:上移 p:选择/取消 v:批选模式 o:跳转 e:确认 q:退出";
+    if (batch_mode) {
+      std::cout << " [批选模式中]";
+    }
+    std::cout << "\n";
+
+    // 如果有跳转输入提示
+    static bool jump_mode = false;
+    static std::string jump_input;
+
+    if (jump_mode) {
+      std::cout << "跳转到行号 (1-" << valid_ips.size() << "): " << jump_input;
+      std::cout.flush();
+    }
+
+    // 读取用户输入
+    char ch;
+    read(STDIN_FILENO, &ch, 1);
+
+    if (jump_mode) {
+      if (ch == '\n' || ch == '\r') { // 回车
+        if (!jump_input.empty()) {
+          try {
+            int target = std::stoi(jump_input) - 1;
+            if (target < 0)
+              target = 0;
+            if (target >= valid_ips.size())
+              target = valid_ips.size() - 1;
+            cursor_pos = target;
+          } catch (...) {
+            // 忽略无效输入
+          }
+        }
+        jump_mode = false;
+        jump_input.clear();
+      } else if (ch == 27) { // ESC 取消
+        jump_mode = false;
+        jump_input.clear();
+      } else if (ch == 127 || ch == 8) { // 退格
+        if (!jump_input.empty()) {
+          jump_input.pop_back();
+        }
+      } else if (isdigit(ch)) {
+        jump_input += ch;
+      }
+      continue;
+    }
+
+    // 处理按键
+    switch (ch) {
+    case 'j': // 下移
+      if (cursor_pos < valid_ips.size() - 1) {
+        cursor_pos++;
+        if (batch_mode && batch_start != -1) {
+          // 更新批量标记
+          int start = std::min(batch_start, cursor_pos);
+          int end = std::max(batch_start, cursor_pos);
+        }
+      }
+      break;
+
+    case 'k': // 上移
+      if (cursor_pos > 0) {
+        cursor_pos--;
+        if (batch_mode && batch_start != -1) {
+          int start = std::min(batch_start, cursor_pos);
+          int end = std::max(batch_start, cursor_pos);
+        }
+      }
+      break;
+
+    case 'p': // 选择/取消
+      if (batch_mode && batch_start != -1) {
+        // 批量选择/取消
+        int start = std::min(batch_start, cursor_pos);
+        int end = std::max(batch_start, cursor_pos);
+        bool all_selected = true;
+        for (int i = start; i <= end; i++) {
+          if (!selected[i]) {
+            all_selected = false;
+            break;
+          }
+        }
+
+        for (int i = start; i <= end; i++) {
+          selected[i] = !all_selected;
+        }
+      } else {
+        // 单个选择/取消
+        selected[cursor_pos] = !selected[cursor_pos];
+      }
+      break;
+
+    case 'v': // 批量选择模式
+      batch_mode = !batch_mode;
+      if (batch_mode) {
+        batch_start = cursor_pos;
+      } else {
+        batch_start = -1;
+      }
+      break;
+
+    case 'o': // 跳转
+      jump_mode = true;
+      jump_input.clear();
+      break;
+
+    case 'e': // 确认
+      confirm = true;
+      break;
+
+    case 'q': // 退出
+    case 27:  // ESC
+      quit = true;
+      break;
+
+    case 'g': // 跳转到顶部
+      cursor_pos = 0;
+      break;
+
+    case 'G': // 跳转到底部
+      cursor_pos = valid_ips.size() - 1;
+      break;
+
+    case ' ': // 空格键也支持选择
+      if (batch_mode && batch_start != -1) {
+        // 批量选择/取消
+        int start = std::min(batch_start, cursor_pos);
+        int end = std::max(batch_start, cursor_pos);
+        bool all_selected = true;
+        for (int i = start; i <= end; i++) {
+          if (!selected[i]) {
+            all_selected = false;
+            break;
+          }
+        }
+
+        for (int i = start; i <= end; i++) {
+          selected[i] = !all_selected;
+        }
+      } else {
+        // 单个选择/取消
+        selected[cursor_pos] = !selected[cursor_pos];
+      }
+      break;
+
+    default:
+      break;
+    }
+  }
+
+  // 恢复终端设置
+  tcsetattr(STDIN_FILENO, TCSANOW, &oldt);
+  std::cout << "\033[?25h"; // 显示光标
+
+  if (quit) {
+    return {}; // 用户退出
+  }
+
+  // 收集选中的IP
+  std::vector<GitHubIP> result;
+  for (size_t i = 0; i < valid_ips.size(); i++) {
+    if (selected[i]) {
+      result.push_back(valid_ips[i]);
+    }
+  }
+
+  // 显示选择结果
+  clearScreen();
+  if (!result.empty()) {
+    printColored("已选择 " + std::to_string(result.size()) + " 个IP地址\n",
+                 "green", true);
+  } else {
+    printColored("未选择任何IP地址\n", "yellow", true);
+  }
+
+  return result;
 }

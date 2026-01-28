@@ -15,11 +15,6 @@ public:
   // 显示主菜单
   void showMainMenu();
 
-  // 显示IP列表供用户选择
-  std::vector<GitHubIP>
-  selectIPsInteractive(const std::vector<GitHubIP> &ip_list,
-                       const std::string &title = "选择要应用的IP地址");
-
   // 显示进度条
   void showProgressBar(int current, int total, const std::string &message = "");
 
@@ -33,6 +28,11 @@ public:
 
   // 显示权限警告
   static void showPermissionWarning();
+
+  // 新的交互式选择界面
+  std::vector<GitHubIP>
+  selectIPsNcduMode(const std::vector<GitHubIP> &ip_list,
+                    const std::string &title = "选择要应用的IP地址");
 
   // 清屏
   static void clearScreen();

@@ -186,8 +186,8 @@ int main(int argc, char *argv[]) {
       // 按质量排序
       tester.sortByQuality(ip_list);
 
-      // 让用户选择IP
-      auto selected_ips = ui.selectIPsInteractive(ip_list);
+      // 让用户选择IP（使用ncdu风格的交互界面）
+      auto selected_ips = ui.selectIPsNcduMode(ip_list);
 
       if (!selected_ips.empty()) {
         ui.printColored("您选择了 " + std::to_string(selected_ips.size()) +
