@@ -178,7 +178,6 @@ int main(int argc, char *argv[]) {
       }
 
       // 批量测试IP质量
-      ui.showProgressBar(0, ip_list.size(), "测试IP地址");
       tester.batchTest(ip_list, [&](int current, int total) {
         ui.showProgressBar(current, total, "测试IP地址");
       });

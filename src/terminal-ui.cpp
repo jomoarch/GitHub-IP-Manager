@@ -288,17 +288,29 @@ TerminalUI::selectIPsNcduMode(const std::vector<GitHubIP> &ip_list,
     for (int i = scroll_offset; i < end_row; i++) {
       const auto &ip = valid_ips[i];
 
+      bool is_current = (i == cursor_pos);
+
       // ============ 左侧：行号区域 ============
       // 打印行号（右对齐，不补零）
       std::string line_num_str = std::to_string(i + 1);
       int padding = line_num_width - line_num_str.length();
+
+      if (is_current) {
+        std::cout << TerminalColors::UNDERLINE;
+      }
       for (int p = 0; p < padding; p++) {
         std::cout << " ";
       }
       std::cout << line_num_str << " ║ ";
+      if (is_current) {
+        std::cout << TerminalColors::NO_UNDERLINE;
+      }
 
       // ============ 右侧：内容区域 ============
 
+      if (is_current) {
+        std::cout << TerminalColors::UNDERLINE;
+      }
       // 绘制行前缀
       if (batch_mode && batch_start != -1) {
         int start = std::min(batch_start, cursor_pos);
@@ -311,19 +323,34 @@ TerminalUI::selectIPsNcduMode(const std::vector<GitHubIP> &ip_list,
       } else {
         std::cout << "  ";
       }
+      if (is_current) {
+        std::cout << TerminalColors::NO_UNDERLINE;
+      }
 
       // 光标指示
-      if (i == cursor_pos) {
+      if (is_current) {
+        std::cout << TerminalColors::UNDERLINE;
         printColored("▶ ", "green", true); // 光标
+        std::cout << TerminalColors::NO_UNDERLINE;
       } else {
         std::cout << "  ";
       }
 
+      if (is_current) {
+        std::cout << TerminalColors::UNDERLINE;
+      }
       // 选择状态
       if (selected[i]) {
         printColored("● ", "green"); // 已选中
       } else {
         std::cout << "○ ";
+      }
+      if (is_current) {
+        std::cout << TerminalColors::NO_UNDERLINE;
+      }
+
+      if (is_current) {
+        std::cout << TerminalColors::UNDERLINE;
       }
 
       // IP信息
@@ -354,6 +381,10 @@ TerminalUI::selectIPsNcduMode(const std::vector<GitHubIP> &ip_list,
         }
       }
 
+      if (is_current) {
+        std::cout << TerminalColors::NO_UNDERLINE;
+      }
+
       std::cout << "\n";
     }
 
@@ -363,7 +394,7 @@ TerminalUI::selectIPsNcduMode(const std::vector<GitHubIP> &ip_list,
     // 显示操作提示
     std::cout << "j:下移 k:上移 p:选择/取消 v:批选模式 o:跳转 e:确认 q:退出";
     if (batch_mode) {
-      std::cout << " [批选模式中]";
+      std::cout << " [批量选择模式中]";
     }
     std::cout << "\n";
 

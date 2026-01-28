@@ -1,5 +1,8 @@
 #!/bin/bash
 echo "正在编译 GitHub IP 优化工具..."
+if [ -d "build" ]; then
+  rm -rf build
+fi
 mkdir -p build
 cd build
 cmake ..

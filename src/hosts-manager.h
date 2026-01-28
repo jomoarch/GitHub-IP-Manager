@@ -33,9 +33,6 @@ private:
 
   // 检查是否具有root权限
   bool hasRootPrivilege();
-
-  // 执行系统命令
-  std::string executeCommand(const std::string &cmd);
 };
 
 #endif

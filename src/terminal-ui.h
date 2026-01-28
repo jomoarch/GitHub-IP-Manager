@@ -63,6 +63,9 @@ const std::string CYAN = "\033[36m";
 const std::string WHITE = "\033[37m";
 const std::string RESET = "\033[0m";
 const std::string BOLD = "\033[1m";
+
+const std::string UNDERLINE = "\033[4m";     // 下划线
+const std::string NO_UNDERLINE = "\033[24m"; // 取消下划线
 } // namespace TerminalColors
 
 #endif

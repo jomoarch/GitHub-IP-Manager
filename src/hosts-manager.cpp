@@ -22,23 +22,6 @@ HostsManager::HostsManager() {
 
 bool HostsManager::hasRootPrivilege() { return geteuid() == 0; }
 
-std::string HostsManager::executeCommand(const std::string &cmd) {
-  char buffer[128];
-  std::string result = "";
-  FILE *pipe = popen(cmd.c_str(), "r");
-
-  if (!pipe) {
-    return "ERROR";
-  }
-
-  while (fgets(buffer, sizeof(buffer), pipe) != nullptr) {
-    result += buffer;
-  }
-
-  pclose(pipe);
-  return result;
-}
-
 bool HostsManager::backupHosts(const std::string &backup_path) {
   std::string backup_file =
       backup_path.empty() ? default_backup_path_ : backup_path;
@@ -348,12 +331,11 @@ bool HostsManager::flushDNSCache() {
   std::vector<std::pair<std::string, std::string>> methods;
 
   // Arch Linux 推荐的 DNS 缓存刷新方法
-  methods = {
-      {"systemd-resolve", "sudo systemd-resolve --flush-caches"},
-      {"直接重启 systemd-resolved", "sudo systemctl restart systemd-resolved"},
-      {"NetworkManager", "sudo systemctl restart NetworkManager"},
-      {"dhclient", "sudo dhclient -r && sudo dhclient"},
-      {"nscd", "sudo systemctl restart nscd"}};
+  methods = {{"systemd-resolve", "sudo systemd-resolve --flush-caches"},
+             {"systemd-resolved", "sudo systemctl restart systemd-resolved"},
+             {"NetworkManager", "sudo systemctl restart NetworkManager"},
+             {"dhclient", "sudo dhclient -r && sudo dhclient"},
+             {"nscd", "sudo systemctl restart nscd"}};
 
   for (const auto &[name, cmd] : methods) {
     std::cout << "尝试方法: " << name << "..." << std::endl;
@@ -476,8 +458,7 @@ HostsManager::generateHostsContent(const std::vector<GitHubIP> &selected_ips) {
   }
 
   oss << "# ========================================\n";
-  oss << "# 使用方法: sudo nano /etc/hosts\n";
-  oss << "# 然后将上述内容粘贴到文件末尾\n";
+  oss << "# 可以将上述内容粘贴到文件末尾\n";
 
   return oss.str();
 }
