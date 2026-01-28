@@ -22,6 +22,9 @@ public:
   // 获取当前hosts文件中的GitHub条目
   std::vector<std::string> getCurrentGitHubEntries();
 
+  // 生成hosts文件内容（供手动复制）
+  std::string generateHostsContent(const std::vector<GitHubIP> &selected_ips);
+
   // 刷新DNS缓存
   bool flushDNSCache();
 

@@ -249,3 +249,37 @@ int TerminalUI::selectIPSource() {
 
   return choice;
 }
+
+// terminal-ui.cpp - 在文件末尾添加
+void TerminalUI::showPermissionWarning() {
+  clearScreen();
+
+  printColored("╔════════════════════════════════════════════════════════╗\n",
+               "red", true);
+  printColored("║                      权限不足警告                      ║\n",
+               "red", true);
+  printColored("╠════════════════════════════════════════════════════════╣\n",
+               "red", true);
+  printColored("║                                                        ║\n",
+               "red");
+  printColored("║  当前程序没有root权限，以下功能将无法使用：            ║\n",
+               "red");
+  printColored("║                                                        ║\n",
+               "red");
+  printColored("║  • 更新hosts文件                                       ║\n",
+               "red");
+  printColored("║  • 恢复hosts文件                                       ║\n",
+               "red");
+  printColored("║  • 刷新DNS缓存                                         ║\n",
+               "red");
+  printColored("║                                                        ║\n",
+               "red");
+  printColored("║  请退出并使用 'sudo'. . .                              ║\n",
+               "red");
+  printColored("║                                                        ║\n",
+               "red");
+  printColored("╚════════════════════════════════════════════════════════╝\n",
+               "red", true);
+
+  std::cout << "\n按回车键继续（功能受限）...";
+}

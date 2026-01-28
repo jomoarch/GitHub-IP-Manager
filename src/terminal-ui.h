@@ -31,6 +31,9 @@ public:
   // 确认对话框
   bool confirmDialog(const std::string &question, bool default_yes = false);
 
+  // 显示权限警告
+  static void showPermissionWarning();
+
   // 清屏
   static void clearScreen();
 

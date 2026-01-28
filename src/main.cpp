@@ -2,9 +2,86 @@
 #include "ip-fetcher.h"
 #include "ip-tester.h"
 #include "terminal-ui.h"
+#include <cstring>
 #include <iostream>
+#include <unistd.h>
 
-int main() {
+bool isRunningAsRoot() { return geteuid() == 0; }
+
+void restartWithSudo(char *argv[]) {
+  std::cout << "\n检测到需要root权限，正在尝试使用sudo重新运行..." << std::endl;
+
+  // 获取当前程序路径
+  std::string program_path = "/proc/self/exe"; // Linux特定方法
+
+  // 构建sudo命令
+  std::vector<char *> args;
+  args.push_back(strdup("sudo"));
+  args.push_back(strdup(argv[0]));
+
+  // 复制原始参数（如果有的话）
+  for (int i = 1; argv[i] != nullptr; i++) {
+    args.push_back(strdup(argv[i]));
+  }
+  args.push_back(nullptr); // execvp要求以nullptr结尾
+
+  // 执行sudo命令
+  execvp("sudo", args.data());
+
+  // 如果execvp失败
+  std::cerr << "无法使用sudo重新运行: " << strerror(errno) << std::endl;
+  std::cout << "请手动使用 'sudo " << argv[0] << "' 运行程序" << std::endl;
+
+  // 清理内存
+  for (auto arg : args) {
+    if (arg)
+      free(arg);
+  }
+  exit(1);
+}
+
+int main(int argc, char *argv[]) {
+  // 检查是否以root权限运行
+  if (!isRunningAsRoot()) {
+    std::cout << "\n╔════════════════════════════════════════════════╗\n";
+    std::cout << "║            GitHub IP 优化工具                  ║\n";
+    std::cout << "║                                                ║\n";
+    std::cout << "║    警告：此工具需要root权限来修改系统文件！    ║\n";
+    std::cout << "║                                                ║\n";
+    std::cout << "╚════════════════════════════════════════════════╝\n";
+
+    // 询问用户是否使用sudo重新运行
+    std::cout << "\n检测到当前没有root权限。";
+    std::cout << "\n\n选项:";
+    std::cout << "\n  1. 使用sudo重新运行（推荐）";
+    std::cout << "\n  2. 继续运行但功能受限";
+    std::cout << "\n  3. 退出程序";
+    std::cout << "\n\n请选择 (1-3): ";
+
+    int choice;
+    std::string input;
+    std::getline(std::cin, input);
+
+    try {
+      choice = std::stoi(input);
+    } catch (...) {
+      choice = 0;
+    }
+
+    if (choice == 1) {
+      // 重新运行
+      restartWithSudo(argv);
+      return 0; // 不会执行到这里
+    } else if (choice == 2) {
+      std::cout << "\n继续以非root权限运行，部分功能将受限。" << std::endl;
+      std::cout << "按回车键继续...";
+      std::cin.get();
+    } else {
+      std::cout << "\n程序已退出。" << std::endl;
+      return 0;
+    }
+  }
+
   std::cout << "GitHub IP优化工具 v1.0" << std::endl;
   std::cout << "正在初始化..." << std::endl;
 
