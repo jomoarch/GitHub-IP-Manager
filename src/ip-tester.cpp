@@ -17,13 +17,43 @@ IPTester::IPTester(int timeout_ms, int thread_count)
 IPTester::~IPTester() {}
 
 int IPTester::testLatency(const std::string &ip) {
-  // 使用ping命令测试延迟（需要系统支持）
-  std::string cmd = "ping -c 1 -W 1 " + ip +
-                    " 2>&1 | grep 'time=' | cut -d'=' -f2 | cut -d' ' -f1";
+  // 使用ping命令获取真实延迟
+  std::string cmd =
+      "ping -c 2 -W 1 " + ip + " 2>&1 | tail -1 | awk -F '/' '{print $5}'";
 
-  // 实际实现应使用原始套接字，这里简化处理
-  // 返回随机延迟用于演示
-  return 10 + (rand() % 100);
+  FILE *pipe = popen(cmd.c_str(), "r");
+  if (!pipe)
+    return -1;
+
+  char buffer[128];
+  std::string result = "";
+
+  while (!feof(pipe)) {
+    if (fgets(buffer, 128, pipe) != nullptr) {
+      result += buffer;
+    }
+  }
+
+  pclose(pipe);
+
+  // 解析ping输出的平均延迟
+  try {
+    // 移除换行符和空格
+    result.erase(std::remove_if(
+                     result.begin(), result.end(),
+                     [](char c) { return c == '\n' || c == '\r' || c == ' '; }),
+                 result.end());
+
+    if (!result.empty()) {
+      // 转换为毫秒
+      double latency_ms = std::stod(result);
+      return static_cast<int>(latency_ms + 0.5); // 四舍五入
+    }
+  } catch (...) {
+    // 解析失败
+  }
+
+  return -1; // 测试失败
 }
 
 bool IPTester::testGitHubService(const GitHubIP &ip_info) {

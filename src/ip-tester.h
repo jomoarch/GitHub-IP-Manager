@@ -8,7 +8,7 @@
 
 class IPTester {
 public:
-  IPTester(int timeout_ms = 3000, int thread_count = 10);
+  IPTester(int timeout_ms = 1000, int thread_count = 10);
   ~IPTester();
 
   // 测试单个IP的延迟

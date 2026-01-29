@@ -88,7 +88,7 @@ int main(int argc, char *argv[]) {
   // 初始化组件
   TerminalUI ui;
   IPFetcher fetcher;
-  IPTester tester(3000, 8); // 3秒超时，8个线程
+  IPTester tester(1000, 10); // 1秒超时，10个线程
   HostsManager hosts_manager;
 
   while (true) {
