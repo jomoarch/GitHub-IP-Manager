@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.10)
-project(GHIP)
+project(ghip)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -7,7 +7,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 find_package(CURL REQUIRED)
 find_package(Threads REQUIRED)
 
-add_executable(GHIP
+add_executable(ghip
     src/main.cpp
     src/ip-fetcher.cpp
     src/ip-tester.cpp
@@ -15,9 +15,9 @@ add_executable(GHIP
     src/terminal-ui.cpp
 )
 
-target_link_libraries(GHIP
+target_link_libraries(ghip
     ${CURL_LIBRARIES}
     ${CMAKE_THREAD_LIBS_INIT}
 )
 
-target_include_directories(GHIP PRIVATE src)
+target_include_directories(ghip PRIVATE src)
