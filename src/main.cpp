@@ -177,9 +177,22 @@ int main(int argc, char *argv[]) {
         break;
       }
 
-      // 批量测试IP质量
+      // 批量测试IP质量 - 使用三层检测
       tester.batchTest(ip_list, [&](int current, int total) {
-        ui.showProgressBar(current, total, "测试IP地址");
+        // 总进度 = 三层筛选 + 深度测试
+        int filter_stages = ip_list.size() * 3;   // 每层都测试所有IP
+        int depth_stages = total - filter_stages; // 深度测试的IP数
+
+        if (current <= filter_stages) {
+          // 还在筛选阶段
+          int stage = (current - 1) / ip_list.size() + 1;
+          ui.showProgressBar(current % ip_list.size(), ip_list.size(),
+                             "快速筛选第" + std::to_string(stage) + "层");
+        } else {
+          // 进入深度测试阶段
+          int depth_current = current - filter_stages;
+          ui.showProgressBar(depth_current, depth_stages, "深度测试");
+        }
       });
 
       // 按质量排序
