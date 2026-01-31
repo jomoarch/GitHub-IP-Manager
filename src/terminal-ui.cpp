@@ -48,11 +48,28 @@ void TerminalUI::showMainMenu() {
 
 void TerminalUI::showProgressBar(int current, int total,
                                  const std::string &message) {
-  int bar_width = 50;
-  float progress = static_cast<float>(current) / total;
-  int pos = bar_width * progress;
+  if (total <= 0) {
+    std::cout << message << " [等待数据...]" << std::endl;
+    return;
+  }
 
-  std::cout << "\r" << message << " [";
+  // 计算进度百分比
+  float progress = static_cast<float>(current) / total;
+  if (progress < 0)
+    progress = 0;
+  if (progress > 1)
+    progress = 1;
+
+  int bar_width = 50;
+  int pos = bar_width * progress;
+  int percent = static_cast<int>(progress * 100.0);
+
+  // 使用回车符和清除行尾，确保整行刷新
+  std::cout << "\r\033[K"; // \r回到行首，\033[K 清除从光标到行尾
+
+  std::cout << message << " [";
+
+  // 绘制进度条
   for (int i = 0; i < bar_width; ++i) {
     if (i < pos) {
       printColored("=", "green");
@@ -62,10 +79,13 @@ void TerminalUI::showProgressBar(int current, int total,
       std::cout << " ";
     }
   }
-  std::cout << "] " << int(progress * 100.0) << "% (" << current << "/" << total
-            << ")";
+
+  std::cout << "] " << percent << "% (" << current << "/" << total << ")";
+
+  // 强制刷新输出缓冲区
   std::cout.flush();
 
+  // 当完成时换行
   if (current >= total) {
     std::cout << std::endl;
   }

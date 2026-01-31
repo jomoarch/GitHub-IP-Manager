@@ -7,7 +7,6 @@
 #include <curl/curl.h>
 #include <fcntl.h>
 #include <iostream>
-#include <mutex>
 #include <netdb.h>
 #include <netinet/in.h>
 #include <poll.h>
@@ -291,7 +290,9 @@ int IPTester::quickLatencyTest(const std::string &ip, int timeout_ms) {
 // ========== 二层快速筛选主函数 ==========
 void IPTester::twoLayerQuickFilter(
     std::vector<GitHubIP> &ip_list,
-    std::function<void(int, int)> progress_callback) {
+    std::function<void(int current, int total, int stage, int stage_total)>
+        progress_callback) {
+
   std::cout << "\n=== 二层快速筛选开始 ===" << std::endl;
   std::cout << "总IP数: " << ip_list.size() << std::endl;
 
@@ -307,8 +308,6 @@ void IPTester::twoLayerQuickFilter(
   std::vector<GitHubIP *> stage1_passed_ips;
   std::atomic<int> stage1_completed(0);
   std::vector<std::thread> threads;
-
-  // 使用互斥锁保护共享向量
   std::mutex stage1_mutex;
 
   auto start_time = std::chrono::steady_clock::now();
@@ -338,9 +337,11 @@ void IPTester::twoLayerQuickFilter(
           ip_list[j].latency = -1;
         }
 
+        // 更新进度
         int completed = ++stage1_completed;
         if (progress_callback) {
-          progress_callback(completed, ip_list.size() * 2);
+          std::lock_guard<std::mutex> lock(callback_mutex_);
+          progress_callback(completed, ip_list.size(), 1, ip_list.size());
         }
       }
 
@@ -412,7 +413,9 @@ void IPTester::twoLayerQuickFilter(
 
         int completed = ++stage2_completed;
         if (progress_callback) {
-          progress_callback(ip_list.size() + completed, ip_list.size() * 2);
+          std::lock_guard<std::mutex> lock(callback_mutex_);
+          progress_callback(completed, stage1_passed_ips.size(), 2,
+                            stage1_passed_ips.size());
         }
       }
     });
@@ -446,8 +449,10 @@ void IPTester::twoLayerQuickFilter(
 }
 
 // ========== 集成三层检测的批量测试主函数 ==========
-void IPTester::batchTest(std::vector<GitHubIP> &ip_list,
-                         std::function<void(int, int)> progress_callback) {
+void IPTester::batchTest(
+    std::vector<GitHubIP> &ip_list,
+    std::function<void(int current, int total, int stage, int stage_total)>
+        progress_callback) {
 
   if (ip_list.empty()) {
     std::cout << "IP列表为空，跳过测试" << std::endl;
@@ -456,6 +461,7 @@ void IPTester::batchTest(std::vector<GitHubIP> &ip_list,
 
   std::cout << "开始测试 " << ip_list.size() << " 个IP地址..." << std::endl;
 
+  // 调用修改后的两层快速筛选函数，它现在会使用新的回调格式
   twoLayerQuickFilter(ip_list, progress_callback);
 
   // 收集通过快速筛选的IP
@@ -469,7 +475,7 @@ void IPTester::batchTest(std::vector<GitHubIP> &ip_list,
   std::cout << "\n准备进入深度测试的IP数: " << ips_for_depth_test.size()
             << std::endl;
 
-  // ========== 第二步：深度测试 ==========
+  // ========== 第三步：深度测试 ==========
   if (ips_for_depth_test.empty()) {
     std::cout << "没有IP需要深度测试" << std::endl;
     return;
@@ -485,6 +491,13 @@ void IPTester::batchTest(std::vector<GitHubIP> &ip_list,
   int depth_batch_size =
       (ips_for_depth_test.size() + thread_count_ - 1) / thread_count_;
 
+  // 初始化阶段3的进度显示
+  if (progress_callback) {
+    std::lock_guard<std::mutex> lock(callback_mutex_);
+    progress_callback(0, ips_for_depth_test.size(), 3,
+                      ips_for_depth_test.size());
+  }
+
   for (int i = 0; i < thread_count_; i++) {
     int start = i * depth_batch_size;
     int end =
@@ -497,21 +510,27 @@ void IPTester::batchTest(std::vector<GitHubIP> &ip_list,
       for (int j = start; j < end; j++) {
         GitHubIP *ip_ptr = ips_for_depth_test[j];
 
+        if (!ip_ptr) {
+          depth_completed++;
+          continue;
+        }
+
         // 深度测试：完整的GitHub服务验证
         bool is_github = testGitHubService(*ip_ptr);
 
         if (!is_github) {
           ip_ptr->is_valid = false;
+          ip_ptr->latency = -1;
         }
 
-        depth_completed++;
+        int completed = ++depth_completed;
         if (progress_callback) {
-          int total_progress = ip_list.size() * 3;
-          progress_callback(total_progress + depth_completed,
-                            total_progress + ips_for_depth_test.size());
+          std::lock_guard<std::mutex> lock(callback_mutex_);
+          progress_callback(completed, ips_for_depth_test.size(), 3,
+                            ips_for_depth_test.size());
         }
 
-        // 控制请求频率
+        // 控制请求频率，避免被封IP
         if (j % 3 == 0) {
           std::this_thread::sleep_for(std::chrono::milliseconds(50));
         }

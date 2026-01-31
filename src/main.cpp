@@ -178,22 +178,22 @@ int main(int argc, char *argv[]) {
       }
 
       // 批量测试IP质量 - 使用三层检测
-      tester.batchTest(ip_list, [&](int current, int total) {
-        // 总进度 = 三层筛选 + 深度测试
-        int filter_stages = ip_list.size() * 3;   // 每层都测试所有IP
-        int depth_stages = total - filter_stages; // 深度测试的IP数
+      tester.batchTest(
+          ip_list, [&](int current, int total, int stage, int stage_total) {
+            switch (stage) {
+            case 1: // 第一层快速筛选
+              ui.showProgressBar(current, stage_total, "快速筛选第1层");
+              break;
 
-        if (current <= filter_stages) {
-          // 还在筛选阶段
-          int stage = (current - 1) / ip_list.size() + 1;
-          ui.showProgressBar(current % ip_list.size(), ip_list.size(),
-                             "快速筛选第" + std::to_string(stage) + "层");
-        } else {
-          // 进入深度测试阶段
-          int depth_current = current - filter_stages;
-          ui.showProgressBar(depth_current, depth_stages, "深度测试");
-        }
-      });
+            case 2: // 第二层延迟测试
+              ui.showProgressBar(current, stage_total, "快速筛选第2层");
+              break;
+
+            case 3: // 深度测试
+              ui.showProgressBar(current, stage_total, "深度测试");
+              break;
+            }
+          });
 
       // 按质量排序
       tester.sortByQuality(ip_list);

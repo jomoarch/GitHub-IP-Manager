@@ -3,6 +3,7 @@
 
 #include "ip-fetcher.h"
 #include <functional>
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -18,8 +19,10 @@ public:
   bool testGitHubService(const GitHubIP &ip_info);
 
   // 批量测试IP列表
-  void batchTest(std::vector<GitHubIP> &ip_list,
-                 std::function<void(int, int)> progress_callback = nullptr);
+  void batchTest(
+      std::vector<GitHubIP> &ip_list,
+      std::function<void(int current, int total, int stage, int stage_total)>
+          progress_callback = nullptr);
 
   // 对IP列表按质量排序
   static void sortByQuality(std::vector<GitHubIP> &ip_list);
@@ -27,6 +30,7 @@ public:
 private:
   int timeout_ms_;
   int thread_count_;
+  std::mutex callback_mutex_;
 
   // 线程函数：测试一批IP
   void testBatch(const std::vector<GitHubIP *> &batch,
@@ -44,7 +48,8 @@ private:
   // 两层快速筛选主函数
   void twoLayerQuickFilter(
       std::vector<GitHubIP> &ip_list,
-      std::function<void(int, int)> progress_callback = nullptr);
+      std::function<void(int current, int total, int stage, int stage_total)>
+          progress_callback = nullptr);
 };
 
 #endif
