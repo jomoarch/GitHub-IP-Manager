@@ -7,6 +7,7 @@
 #include <curl/curl.h>
 #include <fcntl.h>
 #include <iostream>
+#include <mutex>
 #include <netdb.h>
 #include <netinet/in.h>
 #include <poll.h>
@@ -203,7 +204,14 @@ int IPTester::quickLatencyTest(const std::string &ip, int timeout_ms) {
 
   // 设置非阻塞
   int flags = fcntl(sock, F_GETFL, 0);
-  fcntl(sock, F_SETFL, flags | O_NONBLOCK);
+  if (flags == -1) {
+    close(sock);
+    return -1;
+  }
+  if (fcntl(sock, F_SETFL, flags | O_NONBLOCK)) {
+    close(sock);
+    return -1;
+  }
 
   struct sockaddr_in addr;
   memset(&addr, 0, sizeof(addr));
@@ -300,6 +308,9 @@ void IPTester::twoLayerQuickFilter(
   std::atomic<int> stage1_completed(0);
   std::vector<std::thread> threads;
 
+  // 使用互斥锁保护共享向量
+  std::mutex stage1_mutex;
+
   auto start_time = std::chrono::steady_clock::now();
 
   // 第一层：测试所有IP的端口连通性
@@ -313,23 +324,31 @@ void IPTester::twoLayerQuickFilter(
       break;
 
     threads.emplace_back([&, start, end]() {
+      std::vector<GitHubIP *> local_passed;
+
       for (int j = start; j < end; j++) {
         bool port_open = ultraFastPortScan(ip_list[j].address, 443, 300);
 
         if (port_open) {
-          // 通过第一层，加入下一轮测试列表
-          stage1_passed_ips.push_back(&ip_list[j]);
+          // 通过第一层，加入本地列表
+          local_passed.push_back(&ip_list[j]);
         } else {
           // 第一层失败，直接标记为无效
           ip_list[j].is_valid = false;
           ip_list[j].latency = -1;
         }
 
-        stage1_completed++;
+        int completed = ++stage1_completed;
         if (progress_callback) {
-          progress_callback(stage1_completed,
-                            ip_list.size() * 2); // 两层筛选
+          progress_callback(completed, ip_list.size() * 2);
         }
+      }
+
+      // 批量添加，减少锁竞争
+      if (!local_passed.empty()) {
+        std::lock_guard<std::mutex> lock(stage1_mutex);
+        stage1_passed_ips.insert(stage1_passed_ips.end(), local_passed.begin(),
+                                 local_passed.end());
       }
     });
   }
@@ -374,6 +393,12 @@ void IPTester::twoLayerQuickFilter(
       for (int j = start; j < end; j++) {
         GitHubIP *ip_ptr = stage1_passed_ips[j];
 
+        // 检查指针有效性
+        if (!ip_ptr) {
+          stage2_completed++;
+          continue;
+        }
+
         int latency = quickLatencyTest(ip_ptr->address, 800);
 
         if (latency > 0) {
@@ -385,11 +410,9 @@ void IPTester::twoLayerQuickFilter(
           ip_ptr->latency = -1;
         }
 
-        stage2_completed++;
+        int completed = ++stage2_completed;
         if (progress_callback) {
-          int current_total = ip_list.size() + stage2_completed;
-          int estimated_total = ip_list.size() * 2;
-          progress_callback(current_total, estimated_total);
+          progress_callback(ip_list.size() + completed, ip_list.size() * 2);
         }
       }
     });
