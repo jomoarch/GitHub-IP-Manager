@@ -2,8 +2,10 @@
 #include "ip-fetcher.h"
 #include "ip-tester.h"
 #include "terminal-ui.h"
+#include <atomic>
 #include <cstring>
 #include <iostream>
+#include <thread>
 #include <unistd.h>
 
 bool isRunningAsRoot() { return geteuid() == 0; }
@@ -38,6 +40,71 @@ void restartWithSudo(char *argv[]) {
       free(arg);
   }
   exit(1);
+}
+
+// 专门处理刷新功能的函数：只重新测试当前有效IP
+void refreshValidIPs(std::vector<GitHubIP> &valid_ips, IPTester &tester,
+                     TerminalUI &ui) {
+  std::cout << "\n正在刷新当前高质量IP列表..." << std::endl;
+  std::cout << "重新测试 " << valid_ips.size() << " 个高质量IP..." << std::endl;
+
+  // 只进行深度测试（跳过前两层快速筛选）
+  std::atomic<int> depth_completed(0);
+  std::vector<std::thread> depth_threads;
+  int thread_count = 10;
+  int depth_batch_size = (valid_ips.size() + thread_count - 1) / thread_count;
+
+  for (int i = 0; i < thread_count; i++) {
+    int start = i * depth_batch_size;
+    int end = std::min(start + depth_batch_size, (int)valid_ips.size());
+
+    if (start >= end)
+      break;
+
+    depth_threads.emplace_back([&, start, end]() {
+      for (int j = start; j < end; j++) {
+        GitHubIP *ip_ptr = &valid_ips[j];
+
+        // 重新测试延迟（使用更准确的方法）
+        int new_latency = tester.testLatency(ip_ptr->address);
+
+        // 重新测试GitHub服务
+        bool is_github = tester.testGitHubService(*ip_ptr);
+
+        // 更新IP信息
+        ip_ptr->latency = new_latency;
+        ip_ptr->is_valid = is_github;
+
+        // 更新进度
+        int completed = ++depth_completed;
+        ui.showProgressBar(completed, valid_ips.size(), "刷新测试");
+
+        // 控制请求频率
+        if (j % 3 == 0) {
+          std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        }
+      }
+    });
+  }
+
+  for (auto &thread : depth_threads) {
+    if (thread.joinable())
+      thread.join();
+  }
+
+  // 重新排序
+  tester.sortByQuality(valid_ips);
+
+  // 统计结果
+  int still_valid = 0;
+  for (const auto &ip : valid_ips) {
+    if (ip.is_valid)
+      still_valid++;
+  }
+
+  std::cout << "\n刷新完成！" << std::endl;
+  std::cout << "仍有 " << still_valid << "/" << valid_ips.size() << " 个IP有效"
+            << std::endl;
 }
 
 int main(int argc, char *argv[]) {
@@ -177,7 +244,13 @@ int main(int argc, char *argv[]) {
         break;
       }
 
-      // 批量测试IP质量 - 使用三层检测
+      // 保存原始IP列表副本用于重新筛选
+      std::vector<GitHubIP> original_ip_list = ip_list;
+
+      // 保存原始未测试的IP列表（用于重新筛选）
+      std::vector<GitHubIP> untested_original_list = ip_list;
+
+      // 第一次完整测试
       tester.batchTest(
           ip_list, [&](int current, int total, int stage, int stage_total) {
             switch (stage) {
@@ -198,28 +271,127 @@ int main(int argc, char *argv[]) {
       // 按质量排序
       tester.sortByQuality(ip_list);
 
-      // 让用户选择IP（使用ncdu风格的交互界面）
-      auto selected_ips = ui.selectIPsNcduMode(ip_list);
+      // 进入交互式选择循环
+      bool in_selection_mode = true;
 
-      if (!selected_ips.empty()) {
-        ui.printColored("您选择了 " + std::to_string(selected_ips.size()) +
-                            " 个IP地址\n",
-                        "green");
-
-        if (ui.confirmDialog("确定要更新hosts文件吗？", true)) {
-          if (hosts_manager.updateGitHubHosts(selected_ips)) {
-            ui.printColored("hosts文件更新成功！\n", "green");
-
-            if (ui.confirmDialog("是否刷新DNS缓存？", true)) {
-              hosts_manager.flushDNSCache();
-            }
-          } else {
-            ui.printColored("更新失败，请检查权限\n", "red");
+      while (in_selection_mode) {
+        // 过滤出当前有效的IP用于显示
+        std::vector<GitHubIP> display_list;
+        for (const auto &ip : ip_list) {
+          if (ip.is_valid) {
+            display_list.push_back(ip);
           }
+        }
+
+        if (display_list.empty()) {
+          ui.printColored("没有有效的IP地址可供选择！\n", "red");
+          in_selection_mode = false;
+          break;
+        }
+
+        // 让用户选择IP（使用ncdu风格的交互界面）
+        auto result = ui.selectIPsNcduMode(display_list);
+        auto action = result.first;
+        auto selected_ips = result.second;
+
+        if (action == IPSelectAction::SELECT) {
+          if (!selected_ips.empty()) {
+            ui.printColored("您选择了 " + std::to_string(selected_ips.size()) +
+                                " 个IP地址\n",
+                            "green");
+
+            if (ui.confirmDialog("确定要更新hosts文件吗？", true)) {
+              if (hosts_manager.updateGitHubHosts(selected_ips)) {
+                ui.printColored("hosts文件更新成功！\n", "green");
+
+                if (ui.confirmDialog("是否刷新DNS缓存？", true)) {
+                  hosts_manager.flushDNSCache();
+                }
+              } else {
+                ui.printColored("更新失败，请检查权限\n", "red");
+              }
+            }
+          }
+          in_selection_mode = false; // 退出选择循环
+        } else if (action == IPSelectAction::REFRESH) {
+          // 刷新：只重新测试当前显示的有效IP
+          std::vector<GitHubIP> valid_ips_to_refresh;
+          for (const auto &ip : ip_list) {
+            if (ip.is_valid) {
+              valid_ips_to_refresh.push_back(ip);
+            }
+          }
+
+          if (!valid_ips_to_refresh.empty()) {
+            refreshValidIPs(valid_ips_to_refresh, tester, ui);
+
+            // 更新ip_list中的有效IP状态
+            for (const auto &refreshed_ip : valid_ips_to_refresh) {
+              for (auto &original_ip : ip_list) {
+                if (original_ip.address == refreshed_ip.address &&
+                    original_ip.domain == refreshed_ip.domain) {
+                  original_ip.latency = refreshed_ip.latency;
+                  original_ip.is_valid = refreshed_ip.is_valid;
+                  break;
+                }
+              }
+            }
+
+            // 重新排序
+            tester.sortByQuality(ip_list);
+
+            std::cout << "\n刷新完成！按任意键继续选择IP..." << std::endl;
+            std::cin.get();
+          } else {
+            std::cout << "没有有效IP可供刷新！" << std::endl;
+          }
+          // 继续循环，重新显示选择界面
+        } else if (action == IPSelectAction::REFILTER) {
+          // 重新筛选：重新测试所有原始IP（包括之前被筛掉的）
+          std::cout << "\n正在重新筛选所有IP（包括之前被筛掉的）..."
+                    << std::endl;
+
+          // 重置为原始未测试的IP列表
+          ip_list = untested_original_list;
+
+          // 重置所有IP状态
+          for (auto &ip : ip_list) {
+            ip.latency = -1;
+            ip.is_valid = false;
+          }
+
+          std::cout << "重新测试 " << ip_list.size() << " 个IP..." << std::endl;
+
+          // 进行完整的三层测试
+          tester.batchTest(
+              ip_list, [&](int current, int total, int stage, int stage_total) {
+                switch (stage) {
+                case 1: // 第一层快速筛选
+                  ui.showProgressBar(current, stage_total, "重新筛选第1层");
+                  break;
+
+                case 2: // 第二层延迟测试
+                  ui.showProgressBar(current, stage_total, "重新筛选第2层");
+                  break;
+
+                case 3: // 深度测试
+                  ui.showProgressBar(current, stage_total, "重新筛选深度测试");
+                  break;
+                }
+              });
+
+          // 重新排序
+          tester.sortByQuality(ip_list);
+
+          std::cout << "\n重新筛选完成！按任意键继续选择IP..." << std::endl;
+          std::cin.get();
+          // 继续循环，重新显示选择界面
+        } else if (action == IPSelectAction::QUIT) {
+          in_selection_mode = false; // 退出选择循环
         }
       }
 
-      std::cout << "按回车键继续...";
+      std::cout << "按回车键返回主菜单...";
       std::cin.get();
       break;
     }

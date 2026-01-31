@@ -228,7 +228,7 @@ void TerminalUI::showPermissionWarning() {
   std::cout << "\n按回车键继续（功能受限）...";
 }
 
-std::vector<GitHubIP>
+std::pair<IPSelectAction, std::vector<GitHubIP>>
 TerminalUI::selectIPsNcduMode(const std::vector<GitHubIP> &ip_list,
                               const std::string &title) {
 
@@ -239,7 +239,7 @@ TerminalUI::selectIPsNcduMode(const std::vector<GitHubIP> &ip_list,
 
   if (valid_ips.empty()) {
     printColored("没有找到有效的IP地址！", "red", true);
-    return {};
+    return {IPSelectAction::QUIT, {}};
   }
 
   // 状态变量
@@ -248,7 +248,7 @@ TerminalUI::selectIPsNcduMode(const std::vector<GitHubIP> &ip_list,
   bool batch_mode = false;
   int batch_start = -1;
   std::vector<bool> selected(valid_ips.size(), false);
-  bool quit = false;
+  IPSelectAction action = IPSelectAction::QUIT;
   bool confirm = false;
 
   // 计算可显示行数
@@ -266,7 +266,7 @@ TerminalUI::selectIPsNcduMode(const std::vector<GitHubIP> &ip_list,
   // 清屏并隐藏光标
   std::cout << "\033[?25l"; // 隐藏光标
 
-  while (!quit && !confirm) {
+  while (action == IPSelectAction::QUIT && !confirm) {
     // 清屏
     clearScreen();
 
@@ -411,8 +411,10 @@ TerminalUI::selectIPsNcduMode(const std::vector<GitHubIP> &ip_list,
     // 显示状态栏
     std::cout << std::string(terminal_width_, '-') << "\n";
 
-    // 显示操作提示
-    std::cout << "j:下移 k:上移 p:选择/取消 v:批选模式 o:跳转 e:确认 q:退出";
+    // 显示操作提示（增加r和t选项）
+    printColored("j/p:移动 p:选择/取消 v:批量选择 o:跳转 e:确认 ", "cyan");
+    printColored("r:刷新 t:重新筛选 ", "yellow");
+    printColored("q:退出", "red");
     if (batch_mode) {
       std::cout << " [批量选择模式中]";
     }
@@ -520,12 +522,24 @@ TerminalUI::selectIPsNcduMode(const std::vector<GitHubIP> &ip_list,
       break;
 
     case 'e': // 确认
+      action = IPSelectAction::SELECT;
+      confirm = true;
+      break;
+
+    case 'r': // 刷新当前列表（重新测试高质量IP）
+      action = IPSelectAction::REFRESH;
+      confirm = true;
+      break;
+
+    case 't': // 重新筛选（重新测试所有IP）
+      action = IPSelectAction::REFILTER;
       confirm = true;
       break;
 
     case 'q': // 退出
     case 27:  // ESC
-      quit = true;
+      action = IPSelectAction::QUIT;
+      confirm = true;
       break;
 
     case 'g': // 跳转到顶部
@@ -567,11 +581,16 @@ TerminalUI::selectIPsNcduMode(const std::vector<GitHubIP> &ip_list,
   tcsetattr(STDIN_FILENO, TCSANOW, &oldt);
   std::cout << "\033[?25h"; // 显示光标
 
-  if (quit) {
-    return {}; // 用户退出
+  if (action == IPSelectAction::QUIT) {
+    return {action, {}}; // 用户退出
   }
 
-  // 收集选中的IP
+  // 如果是刷新或重新筛选，直接返回空列表和相应动作
+  if (action == IPSelectAction::REFRESH || action == IPSelectAction::REFILTER) {
+    return {action, {}};
+  }
+
+  // 收集选中的IP（只有选择动作才需要）
   std::vector<GitHubIP> result;
   for (size_t i = 0; i < valid_ips.size(); i++) {
     if (selected[i]) {
@@ -588,5 +607,5 @@ TerminalUI::selectIPsNcduMode(const std::vector<GitHubIP> &ip_list,
     printColored("未选择任何IP地址\n", "yellow", true);
   }
 
-  return result;
+  return {action, result};
 }

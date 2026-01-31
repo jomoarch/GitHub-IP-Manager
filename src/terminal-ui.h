@@ -4,7 +4,16 @@
 #include "ip-fetcher.h"
 #include <functional>
 #include <string>
+#include <utility>
 #include <vector>
+
+// IP选择动作枚举
+enum class IPSelectAction {
+  SELECT,  // 用户选择了IP
+  QUIT,    // 用户退出
+  REFRESH, // 刷新当前列表（重新测试高质量IP）
+  REFILTER // 重新筛选（重新测试所有IP）
+};
 
 class TerminalUI {
 public:
@@ -29,8 +38,8 @@ public:
   // 显示权限警告
   static void showPermissionWarning();
 
-  // 新的交互式选择界面
-  std::vector<GitHubIP>
+  // 新的交互式选择界面，返回动作和选中的IP
+  std::pair<IPSelectAction, std::vector<GitHubIP>>
   selectIPsNcduMode(const std::vector<GitHubIP> &ip_list,
                     const std::string &title = "选择要应用的IP地址");
 
