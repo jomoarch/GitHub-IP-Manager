@@ -38,13 +38,7 @@ private:
   bool ultraFastPortScan(const std::string &ip, int port = 443,
                          int timeout_ms = 300);
 
-  // 第二层：HTTP快速验证（检查是否是GitHub服务器）
-  bool fastHttpValidation(const GitHubIP &ip_info, int timeout_ms = 1000);
-
-  // 备用检验
-  bool alternativeHttpValidation(const GitHubIP &ip_info);
-
-  // 第三层：简单延迟测试
+  // 第二层：简单延迟测试
   int quickLatencyTest(const std::string &ip, int timeout_ms = 800);
 
   // 批量处理助手
@@ -52,8 +46,8 @@ private:
                     const std::function<bool(GitHubIP *)> &test_func,
                     std::atomic<int> &passed, std::atomic<int> &completed);
 
-  // 三层快速筛选主函数
-  void threeLayerQuickFilter(
+  // 两层快速筛选主函数
+  void twoLayerQuickFilter(
       std::vector<GitHubIP> &ip_list,
       std::function<void(int, int)> progress_callback = nullptr);
 };
