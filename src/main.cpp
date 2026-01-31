@@ -2,11 +2,6 @@
 #include "ip-fetcher.h"
 #include "ip-tester.h"
 #include "terminal-ui.h"
-#include <atomic>
-#include <cstring>
-#include <iostream>
-#include <thread>
-#include <unistd.h>
 
 bool isRunningAsRoot() { return geteuid() == 0; }
 
@@ -42,17 +37,20 @@ void restartWithSudo(char *argv[]) {
   exit(1);
 }
 
-// 专门处理刷新功能的函数：只重新测试当前有效IP
+// 专门处理刷新功能的函数：只重新测试当前有效IP，使用与正常测试相同的标准
 void refreshValidIPs(std::vector<GitHubIP> &valid_ips, IPTester &tester,
                      TerminalUI &ui) {
   std::cout << "\n正在刷新当前高质量IP列表..." << std::endl;
   std::cout << "重新测试 " << valid_ips.size() << " 个高质量IP..." << std::endl;
 
-  // 只进行深度测试（跳过前两层快速筛选）
+  // 使用与正常测试相同的标准
   std::atomic<int> depth_completed(0);
   std::vector<std::thread> depth_threads;
   int thread_count = 10;
   int depth_batch_size = (valid_ips.size() + thread_count - 1) / thread_count;
+
+  // 进度条显示
+  ui.showProgressBar(0, valid_ips.size(), "刷新测试");
 
   for (int i = 0; i < thread_count; i++) {
     int start = i * depth_batch_size;
@@ -65,21 +63,80 @@ void refreshValidIPs(std::vector<GitHubIP> &valid_ips, IPTester &tester,
       for (int j = start; j < end; j++) {
         GitHubIP *ip_ptr = &valid_ips[j];
 
-        // 重新测试延迟（使用更准确的方法）
-        int new_latency = tester.testLatency(ip_ptr->address);
+        // 重新测试延迟 - 使用与正常测试第二层相同的方法
+        // 这里应该调用quickLatencyTest，但它是私有方法
+        // 我们需要通过其他方式测试，或者修改IPTester类
+
+        // 首先使用TCP连接测试延迟
+        int sock = socket(AF_INET, SOCK_STREAM, 0);
+        int new_latency = -1;
+        if (sock >= 0) {
+          // 设置非阻塞
+          int flags = fcntl(sock, F_GETFL, 0);
+          if (flags != -1 && fcntl(sock, F_SETFL, flags | O_NONBLOCK) != -1) {
+            struct sockaddr_in addr;
+            memset(&addr, 0, sizeof(addr));
+            addr.sin_family = AF_INET;
+            addr.sin_port = htons(443); // GitHub 使用 HTTPS
+
+            if (inet_pton(AF_INET, ip_ptr->address.c_str(), &addr.sin_addr) >
+                0) {
+              auto start_time = std::chrono::steady_clock::now();
+              int connect_result =
+                  connect(sock, (struct sockaddr *)&addr, sizeof(addr));
+
+              if (connect_result == 0) {
+                // 立即连接成功
+                auto end_time = std::chrono::steady_clock::now();
+                auto duration =
+                    std::chrono::duration_cast<std::chrono::milliseconds>(
+                        end_time - start_time);
+                new_latency = static_cast<int>(duration.count());
+              } else if (connect_result == -1 && errno == EINPROGRESS) {
+                // 等待连接完成
+                struct pollfd fds[1];
+                fds[0].fd = sock;
+                fds[0].events = POLLOUT;
+                int poll_result =
+                    poll(fds, 1, 800); // 800ms超时，与正常测试相同
+
+                if (poll_result > 0) {
+                  int so_error;
+                  socklen_t len = sizeof(so_error);
+                  if (getsockopt(sock, SOL_SOCKET, SO_ERROR, &so_error, &len) ==
+                          0 &&
+                      so_error == 0) {
+                    auto end_time = std::chrono::steady_clock::now();
+                    auto duration =
+                        std::chrono::duration_cast<std::chrono::milliseconds>(
+                            end_time - start_time);
+                    new_latency = static_cast<int>(duration.count());
+                  }
+                }
+              }
+            }
+          }
+          close(sock);
+        }
 
         // 重新测试GitHub服务
         bool is_github = tester.testGitHubService(*ip_ptr);
 
-        // 更新IP信息
-        ip_ptr->latency = new_latency;
-        ip_ptr->is_valid = is_github;
+        // 更新IP信息 - 使用与正常测试相同的标准
+        // 设置延迟阈值：超过249ms的直接淘汰（与quickLatencyTest一致）
+        if (new_latency > 249) {
+          ip_ptr->latency = -1;
+          ip_ptr->is_valid = false;
+        } else {
+          ip_ptr->latency = new_latency;
+          ip_ptr->is_valid = is_github && (new_latency >= 0);
+        }
 
         // 更新进度
         int completed = ++depth_completed;
         ui.showProgressBar(completed, valid_ips.size(), "刷新测试");
 
-        // 控制请求频率
+        // 控制请求频率，避免被封IP
         if (j % 3 == 0) {
           std::this_thread::sleep_for(std::chrono::milliseconds(50));
         }

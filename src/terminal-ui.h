@@ -2,8 +2,14 @@
 #define TERMINAL_UI_H
 
 #include "ip-fetcher.h"
+#include <algorithm>
 #include <functional>
+#include <iomanip>
+#include <iostream>
 #include <string>
+#include <sys/ioctl.h>
+#include <termios.h>
+#include <unistd.h>
 #include <utility>
 #include <vector>
 

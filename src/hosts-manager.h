@@ -2,7 +2,16 @@
 #define HOSTS_MANAGER_H
 
 #include "ip-fetcher.h"
+#include <algorithm>
+#include <filesystem>
+#include <fstream>
+#include <iostream>
+#include <map>
+#include <sstream>
 #include <string>
+#include <sys/stat.h>
+#include <thread>
+#include <unistd.h>
 #include <vector>
 
 class HostsManager {

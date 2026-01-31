@@ -1,7 +1,12 @@
 #ifndef IP_FETCHER_H
 #define IP_FETCHER_H
 
+#include <curl/curl.h>
+#include <iostream>
 #include <memory>
+#include <regex>
+#include <set>
+#include <sstream>
 #include <string>
 #include <vector>
 

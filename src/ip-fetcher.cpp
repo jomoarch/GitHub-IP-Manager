@@ -1,9 +1,4 @@
 #include "ip-fetcher.h"
-#include <curl/curl.h>
-#include <iostream>
-#include <regex>
-#include <set>
-#include <sstream>
 
 // libcurl写回调函数
 size_t writeCallback(char *ptr, size_t size, size_t nmemb, std::string *data) {

@@ -2,9 +2,23 @@
 #define IP_TESTER_H
 
 #include "ip-fetcher.h"
+#include <algorithm>
+#include <arpa/inet.h>
+#include <atomic>
+#include <chrono>
+#include <cstring>
+#include <curl/curl.h>
+#include <fcntl.h>
 #include <functional>
+#include <iostream>
 #include <mutex>
+#include <netdb.h>
+#include <netinet/in.h>
+#include <poll.h>
 #include <string>
+#include <sys/socket.h>
+#include <thread>
+#include <unistd.h>
 #include <vector>
 
 class IPTester {

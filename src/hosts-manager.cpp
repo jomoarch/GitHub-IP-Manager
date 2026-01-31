@@ -1,14 +1,4 @@
 #include "hosts-manager.h"
-#include <algorithm>
-#include <filesystem>
-#include <fstream>
-#include <iostream>
-#include <map>
-#include <sstream>
-#include <sys/stat.h>
-#include <thread>
-#include <unistd.h>
-#include <vector>
 
 HostsManager::HostsManager() {
   // 设置默认备份路径

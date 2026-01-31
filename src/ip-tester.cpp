@@ -1,18 +1,4 @@
 #include "ip-tester.h"
-#include <algorithm>
-#include <arpa/inet.h>
-#include <atomic>
-#include <chrono>
-#include <cstring>
-#include <curl/curl.h>
-#include <fcntl.h>
-#include <iostream>
-#include <netdb.h>
-#include <netinet/in.h>
-#include <poll.h>
-#include <sys/socket.h>
-#include <thread>
-#include <unistd.h>
 
 static size_t discardCallback(char *ptr, size_t size, size_t nmemb,
                               void *userdata) {

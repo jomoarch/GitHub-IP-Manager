@@ -1,12 +1,4 @@
 #include "terminal-ui.h"
-#include <algorithm>
-#include <iomanip>
-#include <iostream>
-#include <string>
-#include <sys/ioctl.h>
-#include <termios.h>
-#include <unistd.h>
-#include <vector>
 
 TerminalUI::TerminalUI() { getTerminalSize(); }
 
