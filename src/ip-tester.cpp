@@ -194,7 +194,7 @@ bool IPTester::ultraFastPortScan(const std::string &ip, int port,
   return (so_error == 0);
 }
 
-// ========== 第三层：简单延迟测试（使用TCP连接时间） ==========
+// ========== 第二层：简单延迟测试（使用TCP连接时间） ==========
 int IPTester::quickLatencyTest(const std::string &ip, int timeout_ms) {
   // 使用 TCP 连接时间作为延迟测量，比 ping 更可靠
   int sock = socket(AF_INET, SOCK_STREAM, 0);
@@ -272,27 +272,12 @@ int IPTester::quickLatencyTest(const std::string &ip, int timeout_ms) {
 
   int latency = static_cast<int>(duration.count());
 
-  // 设置延迟阈值：超过200ms的直接淘汰
-  if (latency > 200) {
+  // 设置延迟阈值：超过199ms的直接淘汰
+  if (latency > 199) {
     return -1;
   }
 
   return latency;
-}
-// ========== 批量处理助手 ==========
-void IPTester::processBatch(std::vector<GitHubIP *> &batch,
-                            const std::function<bool(GitHubIP *)> &test_func,
-                            std::atomic<int> &passed,
-                            std::atomic<int> &completed) {
-  for (auto &ip_ptr : batch) {
-    bool test_result = test_func(ip_ptr);
-
-    if (test_result) {
-      passed++;
-    }
-
-    completed++;
-  }
 }
 
 // ========== 二层快速筛选主函数 ==========
@@ -448,7 +433,6 @@ void IPTester::batchTest(std::vector<GitHubIP> &ip_list,
 
   std::cout << "开始测试 " << ip_list.size() << " 个IP地址..." << std::endl;
 
-  // ========== 第一步：三层快速筛选 ==========
   twoLayerQuickFilter(ip_list, progress_callback);
 
   // 收集通过快速筛选的IP
@@ -499,7 +483,7 @@ void IPTester::batchTest(std::vector<GitHubIP> &ip_list,
 
         depth_completed++;
         if (progress_callback) {
-          int total_progress = ip_list.size() * 3; // 三层筛选占用的进度
+          int total_progress = ip_list.size() * 3;
           progress_callback(total_progress + depth_completed,
                             total_progress + ips_for_depth_test.size());
         }

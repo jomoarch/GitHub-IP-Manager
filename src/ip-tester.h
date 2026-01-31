@@ -41,11 +41,6 @@ private:
   // 第二层：简单延迟测试
   int quickLatencyTest(const std::string &ip, int timeout_ms = 800);
 
-  // 批量处理助手
-  void processBatch(std::vector<GitHubIP *> &batch,
-                    const std::function<bool(GitHubIP *)> &test_func,
-                    std::atomic<int> &passed, std::atomic<int> &completed);
-
   // 两层快速筛选主函数
   void twoLayerQuickFilter(
       std::vector<GitHubIP> &ip_list,
