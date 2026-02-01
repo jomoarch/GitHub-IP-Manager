@@ -388,7 +388,7 @@ TerminalUI::selectIPsNcduMode(const std::vector<GitHubIP> &ip_list,
           printColored(" ██████", "green");
         } else if (ip.latency < 100) {
           printColored(" ████", "yellow");
-        } else if (ip.latency < 200) {
+        } else {
           printColored(" ██", "red");
         }
       }
