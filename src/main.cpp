@@ -37,133 +37,6 @@ void restartWithSudo(char *argv[]) {
   exit(1);
 }
 
-// 专门处理刷新功能的函数：只重新测试当前有效IP，使用与正常测试相同的标准
-void refreshValidIPs(std::vector<GitHubIP> &valid_ips, IPTester &tester,
-                     TerminalUI &ui) {
-  std::cout << "\n正在刷新当前高质量IP列表..." << std::endl;
-  std::cout << "重新测试 " << valid_ips.size() << " 个高质量IP..." << std::endl;
-
-  // 使用与正常测试相同的标准
-  std::atomic<int> depth_completed(0);
-  std::vector<std::thread> depth_threads;
-  int thread_count = 10;
-  int depth_batch_size = (valid_ips.size() + thread_count - 1) / thread_count;
-
-  // 进度条显示
-  ui.showProgressBar(0, valid_ips.size(), "刷新测试");
-
-  for (int i = 0; i < thread_count; i++) {
-    int start = i * depth_batch_size;
-    int end = std::min(start + depth_batch_size, (int)valid_ips.size());
-
-    if (start >= end)
-      break;
-
-    depth_threads.emplace_back([&, start, end]() {
-      for (int j = start; j < end; j++) {
-        GitHubIP *ip_ptr = &valid_ips[j];
-
-        // 重新测试延迟 - 使用与正常测试第二层相同的方法
-        // 这里应该调用quickLatencyTest，但它是私有方法
-        // 我们需要通过其他方式测试，或者修改IPTester类
-
-        // 首先使用TCP连接测试延迟
-        int sock = socket(AF_INET, SOCK_STREAM, 0);
-        int new_latency = -1;
-        if (sock >= 0) {
-          // 设置非阻塞
-          int flags = fcntl(sock, F_GETFL, 0);
-          if (flags != -1 && fcntl(sock, F_SETFL, flags | O_NONBLOCK) != -1) {
-            struct sockaddr_in addr;
-            memset(&addr, 0, sizeof(addr));
-            addr.sin_family = AF_INET;
-            addr.sin_port = htons(443); // GitHub 使用 HTTPS
-
-            if (inet_pton(AF_INET, ip_ptr->address.c_str(), &addr.sin_addr) >
-                0) {
-              auto start_time = std::chrono::steady_clock::now();
-              int connect_result =
-                  connect(sock, (struct sockaddr *)&addr, sizeof(addr));
-
-              if (connect_result == 0) {
-                // 立即连接成功
-                auto end_time = std::chrono::steady_clock::now();
-                auto duration =
-                    std::chrono::duration_cast<std::chrono::milliseconds>(
-                        end_time - start_time);
-                new_latency = static_cast<int>(duration.count());
-              } else if (connect_result == -1 && errno == EINPROGRESS) {
-                // 等待连接完成
-                struct pollfd fds[1];
-                fds[0].fd = sock;
-                fds[0].events = POLLOUT;
-                int poll_result =
-                    poll(fds, 1, 800); // 800ms超时，与正常测试相同
-
-                if (poll_result > 0) {
-                  int so_error;
-                  socklen_t len = sizeof(so_error);
-                  if (getsockopt(sock, SOL_SOCKET, SO_ERROR, &so_error, &len) ==
-                          0 &&
-                      so_error == 0) {
-                    auto end_time = std::chrono::steady_clock::now();
-                    auto duration =
-                        std::chrono::duration_cast<std::chrono::milliseconds>(
-                            end_time - start_time);
-                    new_latency = static_cast<int>(duration.count());
-                  }
-                }
-              }
-            }
-          }
-          close(sock);
-        }
-
-        // 重新测试GitHub服务
-        bool is_github = tester.testGitHubService(*ip_ptr);
-
-        // 更新IP信息 - 使用与正常测试相同的标准
-        // 设置延迟阈值：超过249ms的直接淘汰（与quickLatencyTest一致）
-        if (new_latency > 249) {
-          ip_ptr->latency = -1;
-          ip_ptr->is_valid = false;
-        } else {
-          ip_ptr->latency = new_latency;
-          ip_ptr->is_valid = is_github && (new_latency >= 0);
-        }
-
-        // 更新进度
-        int completed = ++depth_completed;
-        ui.showProgressBar(completed, valid_ips.size(), "刷新测试");
-
-        // 控制请求频率，避免被封IP
-        if (j % 3 == 0) {
-          std::this_thread::sleep_for(std::chrono::milliseconds(50));
-        }
-      }
-    });
-  }
-
-  for (auto &thread : depth_threads) {
-    if (thread.joinable())
-      thread.join();
-  }
-
-  // 重新排序
-  tester.sortByQuality(valid_ips);
-
-  // 统计结果
-  int still_valid = 0;
-  for (const auto &ip : valid_ips) {
-    if (ip.is_valid)
-      still_valid++;
-  }
-
-  std::cout << "\n刷新完成！" << std::endl;
-  std::cout << "仍有 " << still_valid << "/" << valid_ips.size() << " 个IP有效"
-            << std::endl;
-}
-
 int main(int argc, char *argv[]) {
   // 检查是否以root权限运行
   if (!isRunningAsRoot()) {
@@ -308,17 +181,16 @@ int main(int argc, char *argv[]) {
       std::vector<GitHubIP> untested_original_list = ip_list;
 
       // 第一次完整测试
-      tester.batchTest(
-          ip_list, [&](int current, int total, int stage, int stage_total) {
+      tester.unifiedTest(
+          ip_list, IPTester::TEST_MODE_FULL,
+          [&](int current, int total, int stage, int stage_total) {
             switch (stage) {
             case 1: // 第一层快速筛选
               ui.showProgressBar(current, stage_total, "快速筛选第1层");
               break;
-
             case 2: // 第二层延迟测试
               ui.showProgressBar(current, stage_total, "快速筛选第2层");
               break;
-
             case 3: // 深度测试
               ui.showProgressBar(current, stage_total, "深度测试");
               break;
@@ -380,7 +252,12 @@ int main(int argc, char *argv[]) {
           }
 
           if (!valid_ips_to_refresh.empty()) {
-            refreshValidIPs(valid_ips_to_refresh, tester, ui);
+            // 使用统一的刷新测试
+            tester.refreshTest(
+                valid_ips_to_refresh,
+                [&](int current, int total, int stage, int stage_total) {
+                  ui.showProgressBar(current, stage_total, "刷新测试");
+                });
 
             // 更新ip_list中的有效IP状态
             for (const auto &refreshed_ip : valid_ips_to_refresh) {
@@ -404,9 +281,8 @@ int main(int argc, char *argv[]) {
           }
           // 继续循环，重新显示选择界面
         } else if (action == IPSelectAction::REFILTER) {
-          // 重新筛选：重新测试所有原始IP（包括之前被筛掉的）
-          std::cout << "\n正在重新筛选所有IP（包括之前被筛掉的）..."
-                    << std::endl;
+          // 重新筛选：重新测试所有原始IP
+          std::cout << "\n正在重新筛选所有IP..." << std::endl;
 
           // 重置为原始未测试的IP列表
           ip_list = untested_original_list;
@@ -419,18 +295,17 @@ int main(int argc, char *argv[]) {
 
           std::cout << "重新测试 " << ip_list.size() << " 个IP..." << std::endl;
 
-          // 进行完整的三层测试
-          tester.batchTest(
-              ip_list, [&](int current, int total, int stage, int stage_total) {
+          // 使用完整的测试流程
+          tester.unifiedTest(
+              ip_list, IPTester::TEST_MODE_FULL,
+              [&](int current, int total, int stage, int stage_total) {
                 switch (stage) {
                 case 1: // 第一层快速筛选
                   ui.showProgressBar(current, stage_total, "重新筛选第1层");
                   break;
-
                 case 2: // 第二层延迟测试
                   ui.showProgressBar(current, stage_total, "重新筛选第2层");
                   break;
-
                 case 3: // 深度测试
                   ui.showProgressBar(current, stage_total, "重新筛选深度测试");
                   break;
