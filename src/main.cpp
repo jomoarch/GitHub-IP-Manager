@@ -37,6 +37,43 @@ void restartWithSudo(char *argv[]) {
   exit(1);
 }
 
+// 询问用户测试次数
+int askConnectTestTimes() {
+  std::cout << "\n══════════════════════════════════════════════════════"
+            << std::endl;
+  std::cout << "请设置联通测试次数（0-10次）：" << std::endl;
+  std::cout << "  0次: 跳过联通测试，直接进行深度测试" << std::endl;
+  std::cout << "  1次: 只进行一次联通测试" << std::endl;
+  std::cout << "  2次: 默认值，进行两次联通测试（提高稳定性）" << std::endl;
+  std::cout << "  3-10次: 进行更多次测试，淘汰不稳定的IP" << std::endl;
+  std::cout << "\n注意：测试中如果所有IP都被淘汰，则会提前结束。" << std::endl;
+  std::cout << "══════════════════════════════════════════════════════"
+            << std::endl;
+  std::cout << "请输入测试次数（回车使用默认值2）: ";
+
+  std::string input;
+  std::getline(std::cin, input);
+
+  // 如果用户直接回车，使用默认值2
+  if (input.empty()) {
+    return 2;
+  }
+
+  try {
+    int times = std::stoi(input);
+    // 限制在0-10之间
+    if (times < 0)
+      times = 0;
+    if (times > 10)
+      times = 10;
+    return times;
+  } catch (...) {
+    // 输入无效，使用默认值2
+    std::cout << "输入无效，使用默认值2次测试。" << std::endl;
+    return 2;
+  }
+}
+
 int main(int argc, char *argv[]) {
   // 检查是否以root权限运行
   if (!isRunningAsRoot()) {
@@ -180,20 +217,21 @@ int main(int argc, char *argv[]) {
       // 保存原始未测试的IP列表（用于重新筛选）
       std::vector<GitHubIP> untested_original_list = ip_list;
 
+      // 询问用户测试次数
+      int connect_test_times = askConnectTestTimes();
+
       // 第一次完整测试
       tester.unifiedTest(
-          ip_list, IPTester::TEST_MODE_FULL,
+          ip_list, IPTester::TEST_MODE_FULL, connect_test_times,
           [&](int current, int total, int stage, int stage_total) {
-            switch (stage) {
-            case 1: // 第一层快速筛选
-              ui.showProgressBar(current, stage_total, "快速筛选第1层");
-              break;
-            case 2: // 第二层延迟测试
-              ui.showProgressBar(current, stage_total, "快速筛选第2层");
-              break;
-            case 3: // 深度测试
-              ui.showProgressBar(current, stage_total, "深度测试");
-              break;
+            if (stage == 0) {
+              // 深度测试阶段
+              ui.showProgressBar(current, total, "深度测试");
+            } else {
+              // 联通测试阶段：显示当前轮次
+              ui.showProgressBar(current, total,
+                                 "联通测试第" + std::to_string(stage) + "轮/" +
+                                     std::to_string(stage_total) + "轮");
             }
           });
 
@@ -252,12 +290,38 @@ int main(int argc, char *argv[]) {
           }
 
           if (!valid_ips_to_refresh.empty()) {
-            // 使用统一的刷新测试
-            tester.refreshTest(
-                valid_ips_to_refresh,
-                [&](int current, int total, int stage, int stage_total) {
-                  ui.showProgressBar(current, stage_total, "刷新测试");
-                });
+            // 询问是否重新进行联通测试
+            std::cout << "\n刷新模式：" << std::endl;
+            std::cout << "  1. 仅深度测试（默认）" << std::endl;
+            std::cout << "  2. 重新进行联通测试" << std::endl;
+            std::cout << "请选择刷新模式 [1]: ";
+
+            std::string refresh_choice;
+            std::getline(std::cin, refresh_choice);
+
+            if (refresh_choice == "2") {
+              // 重新进行联通测试
+              int refresh_times = askConnectTestTimes();
+              tester.unifiedTest(
+                  valid_ips_to_refresh, IPTester::TEST_MODE_FULL, refresh_times,
+                  [&](int current, int total, int stage, int stage_total) {
+                    if (stage == 0) {
+                      ui.showProgressBar(current, total, "深度测试");
+                    } else {
+                      ui.showProgressBar(
+                          current, total,
+                          "刷新联通测试第" + std::to_string(stage) + "轮/" +
+                              std::to_string(stage_total) + "轮");
+                    }
+                  });
+            } else {
+              // 仅深度测试
+              tester.refreshTest(
+                  valid_ips_to_refresh,
+                  [&](int current, int total, int stage, int stage_total) {
+                    ui.showProgressBar(current, total, "刷新深度测试");
+                  });
+            }
 
             // 更新ip_list中的有效IP状态
             for (const auto &refreshed_ip : valid_ips_to_refresh) {
@@ -293,22 +357,22 @@ int main(int argc, char *argv[]) {
             ip.is_valid = false;
           }
 
+          // 询问测试次数
+          int refilter_test_times = askConnectTestTimes();
+
           std::cout << "重新测试 " << ip_list.size() << " 个IP..." << std::endl;
 
           // 使用完整的测试流程
           tester.unifiedTest(
-              ip_list, IPTester::TEST_MODE_FULL,
+              ip_list, IPTester::TEST_MODE_FULL, refilter_test_times,
               [&](int current, int total, int stage, int stage_total) {
-                switch (stage) {
-                case 1: // 第一层快速筛选
-                  ui.showProgressBar(current, stage_total, "重新筛选第1层");
-                  break;
-                case 2: // 第二层延迟测试
-                  ui.showProgressBar(current, stage_total, "重新筛选第2层");
-                  break;
-                case 3: // 深度测试
-                  ui.showProgressBar(current, stage_total, "重新筛选深度测试");
-                  break;
+                if (stage == 0) {
+                  ui.showProgressBar(current, total, "重新筛选深度测试");
+                } else {
+                  ui.showProgressBar(current, total,
+                                     "重新筛选第" + std::to_string(stage) +
+                                         "轮/" + std::to_string(stage_total) +
+                                         "轮");
                 }
               });
 

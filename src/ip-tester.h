@@ -40,9 +40,10 @@ public:
   // 测试IP是否服务于GitHub
   bool testGitHubService(const GitHubIP &ip_info);
 
-  // 统一的批量测试函数
+  // 统一的批量测试函数（用户可自定义测试次数）
   void unifiedTest(
       std::vector<GitHubIP> &ip_list, TestMode mode = TEST_MODE_FULL,
+      int connect_test_times = 2, // 新增：联通测试次数
       std::function<void(int current, int total, int stage, int stage_total)>
           progress_callback = nullptr);
 
@@ -66,9 +67,10 @@ private:
   bool quickConnectTest(const std::string &ip, int port = 443,
                         int timeout_ms = 300);
 
-  // 简化联通测试主函数
-  void simpleConnectFilter(
+  // 多次联通测试主函数
+  void multipleConnectFilter(
       std::vector<GitHubIP> &ip_list,
+      int test_times, // 测试次数
       std::function<void(int current, int total, int stage, int stage_total)>
           progress_callback = nullptr);
 

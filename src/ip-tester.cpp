@@ -12,7 +12,7 @@ IPTester::~IPTester() {}
 
 // ========== 统一的批量测试函数 ==========
 void IPTester::unifiedTest(
-    std::vector<GitHubIP> &ip_list, TestMode mode,
+    std::vector<GitHubIP> &ip_list, TestMode mode, int connect_test_times,
     std::function<void(int current, int total, int stage, int stage_total)>
         progress_callback) {
 
@@ -37,14 +37,29 @@ void IPTester::unifiedTest(
 
   // 根据模式执行不同的测试流程
   switch (mode) {
-  case TEST_MODE_FULL:
-    // 1. 联通测试
-    simpleConnectFilter(ip_list, progress_callback);
+  case TEST_MODE_FULL: {
+    // 1. 多次联通测试
+    multipleConnectFilter(ip_list, connect_test_times, progress_callback);
 
-    // 2. 深度测试（只测试通过联通测试的IP）
-    depthTestWithLatency(ip_list, false, progress_callback);
+    // 询问用户是否进行深度测试
+    std::cout << "\n联通测试完成，是否进行深度测试？[Y/n]: ";
+    std::string answer;
+    std::getline(std::cin, answer);
+
+    if (answer.empty() || answer[0] == 'Y' || answer[0] == 'y') {
+      // 2. 深度测试（只测试通过联通测试的IP）
+      depthTestWithLatency(ip_list, false, progress_callback);
+    } else {
+      std::cout << "跳过深度测试，仅使用联通测试结果。" << std::endl;
+      // 为联通成功的IP设置默认延迟
+      for (auto &ip : ip_list) {
+        if (ip.is_valid && ip.latency == -1) {
+          ip.latency = 100; // 默认延迟值
+        }
+      }
+    }
     break;
-
+  }
   case TEST_MODE_REFRESH:
     // 刷新测试：只深度测试当前有效的IP
     depthTestWithLatency(ip_list, false, progress_callback);
@@ -52,7 +67,7 @@ void IPTester::unifiedTest(
 
   case TEST_MODE_CONNECT:
     // 仅联通测试
-    simpleConnectFilter(ip_list, progress_callback);
+    multipleConnectFilter(ip_list, connect_test_times, progress_callback);
     break;
   }
 
@@ -85,7 +100,145 @@ void IPTester::refreshTest(
   depthTestWithLatency(ip_list, false, progress_callback);
 }
 
-// ========== 简化的联通测试 ==========
+// ========== 多次联通测试 ==========
+void IPTester::multipleConnectFilter(
+    std::vector<GitHubIP> &ip_list, int test_times,
+    std::function<void(int current, int total, int stage, int stage_total)>
+        progress_callback) {
+
+  if (test_times <= 0) {
+    std::cout << "跳过联通测试" << std::endl;
+    return;
+  }
+
+  std::cout << "\n=== 开始 " << test_times << " 次联通测试 ===" << std::endl;
+  std::cout << "总IP数: " << ip_list.size() << std::endl;
+
+  // 重置所有IP状态
+  for (auto &ip : ip_list) {
+    ip.is_valid = false;
+    ip.latency = -1;
+  }
+
+  // 用于记录每轮测试后的有效IP
+  std::vector<GitHubIP *> current_valid_ips;
+  for (auto &ip : ip_list) {
+    current_valid_ips.push_back(&ip);
+  }
+
+  auto start_time = std::chrono::steady_clock::now();
+  int remaining_valid_count = current_valid_ips.size();
+
+  // 进行多次联通测试
+  for (int round = 1; round <= test_times; round++) {
+    if (remaining_valid_count == 0) {
+      std::cout << "\n第 " << round << " 轮测试跳过：所有IP已被淘汰"
+                << std::endl;
+      break;
+    }
+
+    std::cout << "\n[第 " << round << " 轮] 联通测试（300ms超时）..."
+              << std::endl;
+
+    std::vector<GitHubIP *> round_passed_ips;
+    std::atomic<int> round_completed(0);
+    std::vector<std::thread> threads;
+    std::mutex round_mutex;
+
+    // 本轮测试的批量大小
+    int batch_size =
+        (current_valid_ips.size() + thread_count_ - 1) / thread_count_;
+
+    // 设置进度条显示
+    int total_for_round = current_valid_ips.size();
+    if (progress_callback) {
+      std::lock_guard<std::mutex> lock(callback_mutex_);
+      progress_callback(0, total_for_round, round, test_times);
+    }
+
+    for (int i = 0; i < thread_count_; i++) {
+      int start = i * batch_size;
+      int end = std::min(start + batch_size, (int)current_valid_ips.size());
+
+      if (start >= end)
+        break;
+
+      threads.emplace_back([&, start, end, round]() {
+        std::vector<GitHubIP *> local_passed;
+
+        for (int j = start; j < end; j++) {
+          GitHubIP *ip_ptr = current_valid_ips[j];
+          if (!ip_ptr) {
+            round_completed++;
+            continue;
+          }
+
+          bool connected = quickConnectTest(ip_ptr->address, 443, 300);
+
+          if (connected) {
+            local_passed.push_back(ip_ptr);
+          } else {
+            ip_ptr->is_valid = false;
+          }
+
+          // 更新进度
+          int completed = ++round_completed;
+          if (progress_callback) {
+            std::lock_guard<std::mutex> lock(callback_mutex_);
+            progress_callback(completed, total_for_round, round, test_times);
+          }
+        }
+
+        // 批量添加，减少锁竞争
+        if (!local_passed.empty()) {
+          std::lock_guard<std::mutex> lock(round_mutex);
+          round_passed_ips.insert(round_passed_ips.end(), local_passed.begin(),
+                                  local_passed.end());
+        }
+      });
+    }
+
+    for (auto &thread : threads) {
+      if (thread.joinable())
+        thread.join();
+    }
+
+    // 更新有效IP列表
+    current_valid_ips = round_passed_ips;
+    remaining_valid_count = current_valid_ips.size();
+
+    std::cout << "  结果: " << remaining_valid_count << " 个IP通过本轮测试"
+              << std::endl;
+
+    // 为通过本轮测试的IP设置有效标记
+    for (auto ip_ptr : current_valid_ips) {
+      ip_ptr->is_valid = true;
+    }
+
+    // 如果本轮测试淘汰了所有IP，提前结束
+    if (remaining_valid_count == 0) {
+      std::cout << "所有IP均被淘汰，测试提前结束" << std::endl;
+      break;
+    }
+
+    // 控制轮次间隔
+    if (round < test_times && remaining_valid_count > 0) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
+  }
+
+  auto end_time = std::chrono::steady_clock::now();
+  auto total_duration = std::chrono::duration_cast<std::chrono::milliseconds>(
+      end_time - start_time);
+
+  std::cout << "\n=== " << test_times << " 次联通测试完成 ===" << std::endl;
+  std::cout << "时间统计: " << total_duration.count() << "ms" << std::endl;
+  std::cout << "最终有效IP数: " << remaining_valid_count << "（约 "
+            << (remaining_valid_count * 100 / ip_list.size()) << "%）"
+            << std::endl;
+}
+
+// ========== 快速端口联通测试 ==========
 bool IPTester::quickConnectTest(const std::string &ip, int port,
                                 int timeout_ms) {
   int sock = socket(AF_INET, SOCK_STREAM, 0);
@@ -144,172 +297,6 @@ bool IPTester::quickConnectTest(const std::string &ip, int port,
   return (so_error == 0);
 }
 
-// ========== 简化联通测试主函数 ==========
-void IPTester::simpleConnectFilter(
-    std::vector<GitHubIP> &ip_list,
-    std::function<void(int current, int total, int stage, int stage_total)>
-        progress_callback) {
-
-  std::cout << "\n=== 联通测试开始 ===" << std::endl;
-  std::cout << "总IP数: " << ip_list.size() << std::endl;
-
-  // 重置所有IP状态（如果是首次测试）
-  bool need_reset = false;
-  for (auto &ip : ip_list) {
-    if (!ip.is_valid && ip.latency == -1) {
-      need_reset = true;
-      break;
-    }
-  }
-
-  if (need_reset) {
-    for (auto &ip : ip_list) {
-      ip.is_valid = false;
-      ip.latency = -1;
-    }
-  }
-
-  // ========== 第一轮联通测试 ==========
-  std::cout << "\n[第一轮] 快速联通测试（300ms超时）..." << std::endl;
-
-  std::vector<GitHubIP *> round1_passed_ips;
-  std::atomic<int> round1_completed(0);
-  std::vector<std::thread> threads;
-  std::mutex round1_mutex;
-
-  auto start_time = std::chrono::steady_clock::now();
-
-  // 第一轮测试所有IP的端口连通性
-  int batch_size = (ip_list.size() + thread_count_ - 1) / thread_count_;
-
-  for (int i = 0; i < thread_count_; i++) {
-    int start = i * batch_size;
-    int end = std::min(start + batch_size, (int)ip_list.size());
-
-    if (start >= end)
-      break;
-
-    threads.emplace_back([&, start, end]() {
-      std::vector<GitHubIP *> local_passed;
-
-      for (int j = start; j < end; j++) {
-        bool connected = quickConnectTest(ip_list[j].address, 443, 300);
-
-        if (connected) {
-          local_passed.push_back(&ip_list[j]);
-        } else {
-          ip_list[j].is_valid = false;
-        }
-
-        // 更新进度
-        int completed = ++round1_completed;
-        if (progress_callback) {
-          std::lock_guard<std::mutex> lock(callback_mutex_);
-          progress_callback(completed, ip_list.size(), 1, ip_list.size());
-        }
-      }
-
-      // 批量添加，减少锁竞争
-      if (!local_passed.empty()) {
-        std::lock_guard<std::mutex> lock(round1_mutex);
-        round1_passed_ips.insert(round1_passed_ips.end(), local_passed.begin(),
-                                 local_passed.end());
-      }
-    });
-  }
-
-  for (auto &thread : threads) {
-    if (thread.joinable())
-      thread.join();
-  }
-
-  threads.clear();
-
-  auto round1_end = std::chrono::steady_clock::now();
-  auto round1_duration = std::chrono::duration_cast<std::chrono::milliseconds>(
-      round1_end - start_time);
-
-  std::cout << "  结果: " << round1_passed_ips.size() << "/" << ip_list.size()
-            << " 通过 (" << round1_duration.count() << "ms)" << std::endl;
-
-  if (round1_passed_ips.empty()) {
-    std::cout << "所有IP在第一轮测试中被淘汰" << std::endl;
-    return;
-  }
-
-  // ========== 第二轮联通测试 ==========
-  std::cout << "\n[第二轮] 确认测试（300ms超时）..." << std::endl;
-
-  std::atomic<int> round2_passed(0);
-  std::atomic<int> round2_completed(0);
-
-  // 第二轮：再次测试第一轮通过的IP，确认稳定性
-  batch_size = (round1_passed_ips.size() + thread_count_ - 1) / thread_count_;
-  auto round2_start = std::chrono::steady_clock::now();
-
-  for (int i = 0; i < thread_count_; i++) {
-    int start = i * batch_size;
-    int end = std::min(start + batch_size, (int)round1_passed_ips.size());
-
-    if (start >= end)
-      break;
-
-    threads.emplace_back([&, start, end]() {
-      for (int j = start; j < end; j++) {
-        GitHubIP *ip_ptr = round1_passed_ips[j];
-
-        if (!ip_ptr) {
-          round2_completed++;
-          continue;
-        }
-
-        // 第二次连接测试
-        bool connected = quickConnectTest(ip_ptr->address, 443, 300);
-
-        if (connected) {
-          round2_passed++;
-          ip_ptr->is_valid = true; // 通过两轮测试，标记为有效
-        } else {
-          ip_ptr->is_valid = false;
-        }
-
-        int completed = ++round2_completed;
-        if (progress_callback) {
-          std::lock_guard<std::mutex> lock(callback_mutex_);
-          progress_callback(completed, round1_passed_ips.size(), 2,
-                            round1_passed_ips.size());
-        }
-      }
-    });
-  }
-
-  for (auto &thread : threads) {
-    if (thread.joinable())
-      thread.join();
-  }
-
-  auto round2_end = std::chrono::steady_clock::now();
-  auto round2_duration = std::chrono::duration_cast<std::chrono::milliseconds>(
-      round2_end - round2_start);
-  auto total_duration = std::chrono::duration_cast<std::chrono::milliseconds>(
-      round2_end - start_time);
-
-  std::cout << "\n=== 联通测试完成 ===" << std::endl;
-  std::cout << "各轮结果:" << std::endl;
-  std::cout << "  第一轮（快速测试）: " << round1_passed_ips.size() << " 通过"
-            << std::endl;
-  std::cout << "  第二轮（确认测试）: " << round2_passed << " 通过"
-            << std::endl;
-
-  std::cout << "\n时间统计:" << std::endl;
-  std::cout << "  第一轮: " << round1_duration.count() << "ms" << std::endl;
-  std::cout << "  第二轮: " << round2_duration.count() << "ms" << std::endl;
-  std::cout << "  总计: " << total_duration.count() << "ms" << std::endl;
-
-  std::cout << "\n联通IP数: " << round2_passed << "（约 "
-            << (round2_passed * 100 / ip_list.size()) << "%）" << std::endl;
-}
-
 // ========== 深度测试（包含延迟检测） ==========
 void IPTester::depthTestWithLatency(
     std::vector<GitHubIP> &ip_list, bool test_all,
@@ -342,7 +329,7 @@ void IPTester::depthTestWithLatency(
   // 初始化深度测试进度显示
   if (progress_callback) {
     std::lock_guard<std::mutex> lock(callback_mutex_);
-    progress_callback(0, ips_to_test.size(), 3, ips_to_test.size());
+    progress_callback(0, ips_to_test.size(), 0, 0); // stage=0表示深度测试
   }
 
   // 存储每个IP的延迟信息
@@ -368,8 +355,7 @@ void IPTester::depthTestWithLatency(
           depth_completed++;
           if (progress_callback) {
             std::lock_guard<std::mutex> lock(callback_mutex_);
-            progress_callback(depth_completed.load(), ips_to_test.size(), 3,
-                              ips_to_test.size());
+            progress_callback(depth_completed.load(), ips_to_test.size(), 0, 0);
           }
           continue;
         }
@@ -432,8 +418,7 @@ void IPTester::depthTestWithLatency(
         int completed = ++depth_completed;
         if (progress_callback) {
           std::lock_guard<std::mutex> lock(callback_mutex_);
-          progress_callback(completed, ips_to_test.size(), 3,
-                            ips_to_test.size());
+          progress_callback(completed, ips_to_test.size(), 0, 0);
         }
 
         // 控制请求频率，避免被封IP
