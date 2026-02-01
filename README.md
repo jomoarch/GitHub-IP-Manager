@@ -6,12 +6,12 @@
 ## 使用过程
 先用 git 将其下载到你的 Linux 上
 ```bash
-git clone https://github.com/jomoarch/GHIP.git
+git clone https://github.com/jomoarch/GitHub-IP-Manager.git
 ```
 
 然后进入项目并运行 `build.sh` 脚本
 ```bash
-cd GHIP
+cd GitHub-IP-Manager
 chmod +x build.sh
 ./build.sh
 ```
