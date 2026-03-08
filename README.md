@@ -10,7 +10,6 @@ git clone https://github.com/jomoarch/GitHub-IP-Manager.git
 然后进入项目并运行 `build.sh` 脚本
 ```bash
 cd GitHub-IP-Manager
-chmod +x build.sh
 ./build.sh
 ```
 
