@@ -15,9 +15,9 @@ add_executable(ghip
     src/terminal-ui.cpp
 )
 
+target_include_directories(ghip PRIVATE include)
+
 target_link_libraries(ghip
     ${CURL_LIBRARIES}
     ${CMAKE_THREAD_LIBS_INIT}
 )
-
-target_include_directories(ghip PRIVATE src)
